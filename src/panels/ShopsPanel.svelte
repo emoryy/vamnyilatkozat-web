@@ -1,5 +1,5 @@
 <script>
-  import { app, uid, shopLabel } from '../lib/store.svelte.js';
+  import { app, uid, shopLabel, blankShop, isBlankShop, removeShop } from '../lib/store.svelte.js';
   import { BUILTIN_SHOPS } from '../lib/catalog.js';
   import ConfirmButton from '../components/ConfirmButton.svelte';
   import ShopForm from '../components/ShopForm.svelte';
@@ -8,20 +8,21 @@
   let editingId = $state(null);
   let showBuiltin = $state(false);
 
-  function blank() {
-    return { id: uid(), label: '', name: '', country: 'Japán', zip: '', city: '', address: '' };
-  }
-
   function add(from) {
-    const shop = from ? { ...from, id: uid(), label: `${shopLabel(from)} (saját)` } : blank();
+    const shop = from ? { ...from, id: uid(), label: `${shopLabel(from)} (saját)` } : blankShop();
     delete shop.builtin;
     app.data.shops = [shop, ...app.data.shops];
     editingId = shop.id;
   }
 
+  // A sender closed while completely empty was opened by mistake; it is not kept.
+  function done(shop) {
+    editingId = null;
+    if (isBlankShop(shop) && !usedBy(shop.id)) removeShop(shop.id);
+  }
+
   function remove(id) {
-    app.data.shops = app.data.shops.filter((x) => x.id !== id);
-    for (const s of app.data.shipments) if (s.shopId === id) s.shopId = '';
+    removeShop(id);
     if (editingId === id) editingId = null;
   }
 
@@ -44,7 +45,7 @@
   {#each app.data.shops as shop (shop.id)}
     <article class="card shop">
       {#if editingId === shop.id}
-        <ShopForm {shop} ondone={() => (editingId = null)} />
+        <ShopForm {shop} ondone={() => done(shop)} />
       {:else}
         <div class="shop-view">
           <div>
@@ -60,7 +61,6 @@
       {/if}
     </article>
   {/each}
-
 
   <section>
     <button type="button" class="btn ghost" onclick={() => (showBuiltin = !showBuiltin)} aria-expanded={showBuiltin}>

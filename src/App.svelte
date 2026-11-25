@@ -1,5 +1,5 @@
 <script>
-  import { app } from './lib/store.svelte.js';
+  import { app, SAVE_ERROR } from './lib/store.svelte.js';
   import Toasts from './components/Toasts.svelte';
   import Preview from './components/Preview.svelte';
   import ShipmentPanel from './panels/ShipmentPanel.svelte';
@@ -39,6 +39,8 @@
 
   let needsProfile = $derived(app.ready && !app.data.profile.name.trim());
   let needsSignature = $derived(app.ready && !app.data.signatures.length);
+  // Only a failed load or a failed write stops saving; e.g. an unreadable signature image does not.
+  let saving = $derived(app.autosave && !app.error.startsWith(SAVE_ERROR));
 </script>
 
 <div class="shell">
@@ -96,14 +98,16 @@
         {/if}
       </div>
 
-      <p class="save-status" class:bad={!!app.error}>
-        {#if app.error}
-          Az adatok mentése most nem működik, lásd a figyelmeztetést.
-        {:else}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" /></svg>
-          Minden változás automatikusan mentődik ebben a böngészőben.
-        {/if}
-      </p>
+      {#if app.ready}
+        <p class="save-status" class:bad={!saving}>
+          {#if !saving}
+            Az adatok mentése most nem működik, lásd a figyelmeztetést.
+          {:else}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" /></svg>
+            Minden változás automatikusan mentődik ebben a böngészőben.
+          {/if}
+        </p>
+      {/if}
       <footer class="disclaimer">
         Nem hivatalos segédeszköz, a Magyar Posta Zrt.-hez nincs köze. A kitöltött nyomtatvány tartalmáért a nyilatkozatot benyújtó felel.
       </footer>
@@ -186,7 +190,7 @@
     border-bottom: 1px solid var(--line-strong);
     background: var(--paper-2);
     overflow-x: auto;
-    scrollbar-width: none;
+    scrollbar-width: thin;
   }
   .tab {
     position: relative;

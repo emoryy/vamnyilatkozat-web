@@ -152,7 +152,7 @@
 </div>
 
 {#if missing.length}
-  <div class="missing" role="status">
+  <div class="missing">
     <strong>Hiányzik még:</strong>
     <ul>
       {#each missing as m (m.label)}

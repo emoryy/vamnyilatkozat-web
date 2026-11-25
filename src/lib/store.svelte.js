@@ -170,7 +170,8 @@ function normalizeData(stored) {
   return data;
 }
 
-export const app = $state({ ready: false, data: defaults(), error: '' });
+// `autosave` tells whether changes are stored at all; a failed load leaves it off.
+export const app = $state({ ready: false, data: defaults(), error: '', autosave: false });
 
 // Object URLs of processed signature PNGs, keyed by signature id.
 export const sigUrls = $state({});
@@ -190,7 +191,7 @@ let autosaving = false;
 // restore the wrong saving state when it finishes.
 let replacing = false;
 const BUSY = 'Egy visszatöltés vagy törlés már folyamatban van.';
-const SAVE_ERROR = 'A mentés nem sikerült';
+export const SAVE_ERROR = 'A mentés nem sikerült';
 
 function snapshot() {
   return JSON.stringify(app.data);
@@ -258,6 +259,7 @@ if (channel) channel.onmessage = () => reloadFromStorage();
 
 function startAutosave() {
   canSave = true;
+  app.autosave = true;
   if (autosaving) return;
   autosaving = true;
   $effect.root(() => {
@@ -302,6 +304,20 @@ export async function init() {
 
 export function allShops() {
   return [...app.data.shops.map((s) => ({ ...s, builtin: false })), ...BUILTIN_SHOPS.map((s) => ({ ...s, builtin: true }))];
+}
+
+export function blankShop() {
+  return { id: uid(), label: '', name: '', country: 'Japán', zip: '', city: '', address: '' };
+}
+
+/** Country is left out: a new sender has it filled in by default. */
+export function isBlankShop(shop) {
+  return !['name', 'zip', 'city', 'address', 'label'].some((k) => shop[k]?.trim());
+}
+
+export function removeShop(id) {
+  app.data.shops = app.data.shops.filter((x) => x.id !== id);
+  for (const s of app.data.shipments) if (s.shopId === id) s.shopId = '';
 }
 
 export function findShop(id) {
