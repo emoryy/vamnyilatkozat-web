@@ -57,62 +57,94 @@ function fittedSize(font, text, maxWidth, base, min = 5.5) {
   return size;
 }
 
-function drawInRect(page, font, text, rect, { base = 9, pad = 3, align = 'left', baseline, min } = {}) {
+/** Splits text into lines no wider than maxWidth: at spaces, and inside a word too long for a line. */
+function wrapLines(font, str, size, maxWidth) {
+  const lines = [];
+  let line = '';
+  for (const word of str.split(/\s+/).filter(Boolean)) {
+    const trial = line ? `${line} ${word}` : word;
+    if (font.widthOfTextAtSize(trial, size) <= maxWidth) {
+      line = trial;
+      continue;
+    }
+    if (line) lines.push(line);
+    line = '';
+    if (font.widthOfTextAtSize(word, size) <= maxWidth) {
+      line = word;
+      continue;
+    }
+    // Identifiers rarely contain spaces: a long one is broken after - _ / . where possible,
+    // and between characters where a piece alone is still too wide.
+    for (const piece of word.match(/[^-_/.]+[-_/.]*|[-_/.]+/g)) {
+      if (font.widthOfTextAtSize(line + piece, size) <= maxWidth) {
+        line += piece;
+        continue;
+      }
+      if (line) lines.push(line);
+      line = '';
+      for (const ch of piece) {
+        if (line && font.widthOfTextAtSize(line + ch, size) > maxWidth) {
+          lines.push(line);
+          line = '';
+        }
+        line += ch;
+      }
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/** The largest size (and its lines) at which wrapped text fits the cell height. */
+function wrapLayout(font, str, maxWidth, h, base) {
+  let size = Math.min(base, (h - 1) / 2.1);
+  let lines = wrapLines(font, str, size, maxWidth);
+  // 2 pt is only a guard against looping; real values fit long before it.
+  while (size > 2 && lines.length * size * 1.05 > h - 1) {
+    size -= 0.25;
+    lines = wrapLines(font, str, size, maxWidth);
+  }
+  return { size, lines };
+}
+
+/**
+ * Draws text in a cell, on one line or wrapped over several, whichever gives the larger
+ * type (one line on a tie). Either way nothing spills into the next cell, however long
+ * the text is.
+ */
+function drawInRect(page, font, text, rect, { base = 9, pad = 3, align = 'left', baseline } = {}) {
   if (text === undefined || text === null || text === '') return;
   const str = String(text);
   const [x0, y0, x1, y1] = rect;
   const maxWidth = x1 - x0 - pad * 2;
-  const size = fittedSize(font, str, maxWidth, base, min);
   const h = y1 - y0;
-  const y = baseline !== undefined ? baseline : y0 + (h - size) / 2 + size * 0.2;
-  const textWidth = font.widthOfTextAtSize(str, size);
-  let x = x0 + pad;
-  if (align === 'right') x = x1 - pad - textWidth;
-  else if (align === 'center') x = x0 + (x1 - x0 - textWidth) / 2;
-  page.drawText(str, { x, y, size, font, color: rgb(0, 0, 0) });
-}
-
-/**
- * Draws text on one line, shrinking down to `oneLineMin`; if it still does not fit,
- * wraps it onto two lines at the largest size (down to `min`) where both fit.
- */
-function drawFitted(page, font, text, rect, { base = 9, pad = 3, oneLineMin = 6.5, min = 4.5 } = {}) {
-  if (!text) return;
-  const str = String(text);
-  const [x0, y0, x1, y1] = rect;
-  const maxWidth = x1 - x0 - pad * 2;
-  const h = y1 - y0;
-
-  const oneLine = fittedSize(font, str, maxWidth, base, oneLineMin);
-  if (font.widthOfTextAtSize(str, oneLine) <= maxWidth) {
-    drawInRect(page, font, str, rect, { base, pad, min: oneLineMin });
-    return;
-  }
-
-  const splitAt = (size) => {
-    const words = str.split(/\s+/);
-    let first = '';
-    let i = 0;
-    for (; i < words.length; i++) {
-      const trial = first ? `${first} ${words[i]}` : words[i];
-      if (first && font.widthOfTextAtSize(trial, size) > maxWidth) break;
-      first = trial;
-    }
-    return [first, words.slice(i).join(' ')];
+  const xFor = (w) => {
+    if (align === 'right') return x1 - pad - w;
+    if (align === 'center') return x0 + (x1 - x0 - w) / 2;
+    return x0 + pad;
   };
 
-  let size = Math.min(base, (h - 1) / 2.1);
-  let lines = splitAt(size);
-  while (size > min && lines.some((l) => font.widthOfTextAtSize(l, size) > maxWidth)) {
-    size -= 0.25;
-    lines = splitAt(size);
+  const oneSize = fittedSize(font, str, maxWidth, base, 2);
+  const fitsOneLine = font.widthOfTextAtSize(str, oneSize) <= maxWidth;
+  // The date sits on a fixed baseline over the dotted line, so it is never wrapped.
+  if (baseline !== undefined) {
+    page.drawText(str, { x: xFor(font.widthOfTextAtSize(str, oneSize)), y: baseline, size: oneSize, font, color: rgb(0, 0, 0) });
+    return;
   }
+  const wrapped = oneSize >= base ? null : wrapLayout(font, str, maxWidth, h, base);
+  if (!wrapped || (fitsOneLine && oneSize >= wrapped.size)) {
+    const y = y0 + (h - oneSize) / 2 + oneSize * 0.2;
+    page.drawText(str, { x: xFor(font.widthOfTextAtSize(str, oneSize)), y, size: oneSize, font, color: rgb(0, 0, 0) });
+    return;
+  }
+  const { size, lines } = wrapped;
   const lineHeight = size * 1.05;
-  const top = y0 + (h + lineHeight * 2) / 2;
+  const top = y0 + (h + lineHeight * lines.length) / 2;
   lines.forEach((l, i) => {
-    page.drawText(l, { x: x0 + pad, y: top - lineHeight * (i + 1) + size * 0.2, size, font });
+    page.drawText(l, { x: xFor(font.widthOfTextAtSize(l, size)), y: top - lineHeight * (i + 1) + size * 0.2, size, font, color: rgb(0, 0, 0) });
   });
 }
+
 
 function clean(value) {
   return value === undefined || value === null ? '' : String(value).trim();
@@ -163,7 +195,7 @@ function drawContinuationPage(doc, font, rows, startIndex, currency) {
     for (const [key, [x0, x1]] of Object.entries(cols)) {
       const rect = [x0, y, x1, y + 16];
       if (key === 'name') {
-        drawFitted(page, font, cells[key], rect, { base: size, oneLineMin: 6.5 });
+        drawInRect(page, font, cells[key], rect, { base: size });
       } else {
         drawInRect(page, font, cells[key], rect, { base: size, align: right.has(key) ? 'right' : 'left' });
       }
@@ -239,7 +271,7 @@ export async function buildDeclaration(input) {
   const rows = itemRows(input.items);
   rows.slice(0, MAX_ROWS).forEach((r, i) => {
     const cell = ROWS[i];
-    drawFitted(page, font, r.term, cell.name, { base: 8.5 });
+    drawInRect(page, font, r.term, cell.name, { base: 8.5 });
     drawInRect(page, font, `${r.qty} db`, cell.qty, { align: 'right' });
     drawInRect(page, font, `${formatMoney(r.unit, currency)} / db`, cell.unit, { align: 'right', base: 8.5 });
     drawInRect(page, font, formatMoney(r.total, currency), cell.total, { align: 'right', base: 8.5 });
@@ -248,7 +280,7 @@ export async function buildDeclaration(input) {
     drawInRect(page, font, r.spid, cell.spid, { base: 8 });
   });
 
-  drawFitted(page, font, (input.docs || []).filter(Boolean).join(', '), SINGLE.attachedDocs, { base: 9 });
+  drawInRect(page, font, (input.docs || []).filter(Boolean).join(', '), SINGLE.attachedDocs, { base: 9 });
 
   if (input.shippingCost !== '' && input.shippingCost !== null && input.shippingCost !== undefined) {
     drawInRect(page, font, formatMoney(input.shippingCost, currency), SINGLE.shippingCost);
