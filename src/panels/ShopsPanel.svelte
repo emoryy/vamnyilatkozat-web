@@ -1,4 +1,5 @@
 <script>
+  import { onDestroy } from 'svelte';
   import { app, uid, shopLabel, blankShop, isBlankShop, removeShop } from '../lib/store.svelte.js';
   import { BUILTIN_SHOPS } from '../lib/catalog.js';
   import ConfirmButton from '../components/ConfirmButton.svelte';
@@ -12,14 +13,23 @@
     const shop = from ? { ...from, id: uid(), label: `${shopLabel(from)} (saját)` } : blankShop();
     delete shop.builtin;
     app.data.shops = [shop, ...app.data.shops];
-    editingId = shop.id;
+    edit(shop.id);
   }
 
-  // A sender closed while completely empty was opened by mistake; it is not kept.
-  function done(shop) {
-    editingId = null;
-    if (isBlankShop(shop) && !usedBy(shop.id)) removeShop(shop.id);
+  function edit(id) {
+    closeEditing();
+    editingId = id;
   }
+
+  // A sender closed while completely empty was opened by mistake; it is not kept. Opening
+  // another sender or leaving the tab closes the form like its Kész button.
+  function closeEditing() {
+    const shop = editingId && app.data.shops.find((x) => x.id === editingId);
+    editingId = null;
+    if (shop && isBlankShop(shop) && !usedBy(shop.id)) removeShop(shop.id);
+  }
+
+  onDestroy(closeEditing);
 
   function remove(id) {
     removeShop(id);
@@ -45,7 +55,7 @@
   {#each app.data.shops as shop (shop.id)}
     <article class="card shop">
       {#if editingId === shop.id}
-        <ShopForm {shop} ondone={() => done(shop)} />
+        <ShopForm {shop} ondone={closeEditing} />
       {:else}
         <div class="shop-view">
           <div>
@@ -54,7 +64,7 @@
             {#if usedBy(shop.id)}<span class="badge">{usedBy(shop.id)} küldeményben</span>{/if}
           </div>
           <div class="row">
-            <button type="button" class="btn small" onclick={() => (editingId = shop.id)}><Icon name="edit" size={16} /> Szerkesztés</button>
+            <button type="button" class="btn small" onclick={() => edit(shop.id)}><Icon name="edit" size={16} /> Szerkesztés</button>
             <ConfirmButton small label="Törlés" onconfirm={() => remove(shop.id)} />
           </div>
         </div>

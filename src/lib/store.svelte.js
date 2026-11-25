@@ -1,4 +1,4 @@
-import { get, getMany, createStore, promisifyRequest } from 'idb-keyval';
+import { get, getMany, createStore } from 'idb-keyval';
 
 import { BUILTIN_SHOPS, BUILTIN_TERMS, BUILTIN_DOCS } from './catalog.js';
 
@@ -186,9 +186,18 @@ function setSigUrl(id, blob) {
 // signature save or delete, an import, a reset or a reload for another tab's save can
 // never interleave with another one.
 let queue = Promise.resolve();
+// The running task only reads storage; a save on page close need not wait for it.
+let runningReadOnly = false;
 
-function enqueue(task) {
-  const run = queue.then(task);
+function enqueue(task, { readOnly = false } = {}) {
+  const run = queue.then(async () => {
+    runningReadOnly = readOnly;
+    try {
+      return await task();
+    } finally {
+      runningReadOnly = false;
+    }
+  });
   queue = run.catch(() => {});
   return run;
 }
@@ -211,7 +220,13 @@ function commit(puts, { del = [], keepOnly = null } = {}) {
         for (const k of req.result) if (isOwnKey(k) && !keepOnly.has(k)) store.delete(k);
       };
     }
-    return promisifyRequest(store.transaction);
+    // A failed request bubbles an error event before transaction.error is set, so only
+    // the abort carries the cause.
+    const tx = store.transaction;
+    return new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error || new Error('az írás megszakadt'));
+    });
   });
 }
 
@@ -264,9 +279,8 @@ function announceSave() {
 
 function reloadFromStorage() {
   return enqueue(async () => {
-    // Unsaved edits of this tab win: their save follows and the other tabs reload it.
+    if (!loaded) return;
     const local = snapshot();
-    if (!loaded || local !== lastSaved) return;
     try {
       const stored = await get(DATA_KEY, db);
       const data = stored ? normalizeData(stored) : defaults();
@@ -274,12 +288,18 @@ function reloadFromStorage() {
       const versions = new Map(app.data.signatures.map((sig) => [sig.id, sig.updatedAt]));
       const changed = data.signatures.filter((sig) => !sigUrls[sig.id] || versions.get(sig.id) !== sig.updatedAt);
       const pngs = await getMany(changed.map((sig) => sigKey(sig.id, 'png')), db);
-      // Typing during the reads is newer than what was read.
-      if (snapshot() !== local) return;
-      clearTimeout(saveTimer);
       const ids = new Set(data.signatures.map((sig) => sig.id));
       for (const id of Object.keys(sigUrls)) if (!ids.has(id)) setSigUrl(id, null);
       changed.forEach((sig, i) => setSigUrl(sig.id, pngs[i] instanceof Blob ? pngs[i] : null));
+      if (local !== lastSaved || snapshot() !== local) {
+        // This tab has unsaved edits, which win; its save follows. Signatures are stored the
+        // moment they change, though, so their stored list is taken over even then, or the
+        // save would bring back one the other tab deleted (without its images).
+        app.data.signatures = data.signatures;
+        for (const sh of app.data.shipments) if (sh.signatureId && !ids.has(sh.signatureId)) sh.signatureId = '';
+        return;
+      }
+      clearTimeout(saveTimer);
       // The selected shipment belongs to this tab, so another tab's choice does not switch it.
       if (data.shipments.some((sh) => sh.id === app.data.currentShipmentId)) {
         data.currentShipmentId = app.data.currentShipmentId;
@@ -289,7 +309,7 @@ function reloadFromStorage() {
     } catch {
       // Keep showing this tab's copy; its next save stores it as before.
     }
-  });
+  }, { readOnly: true });
 }
 
 if (channel) channel.onmessage = () => reloadFromStorage();
@@ -306,7 +326,15 @@ function startAutosave() {
       saveTimer = setTimeout(persistNow, 300);
     });
   });
-  window.addEventListener('pagehide', () => persistNow());
+  // Closing the page leaves little time: behind a task that only reads, write right away.
+  window.addEventListener('pagehide', () => {
+    if (runningReadOnly) {
+      clearTimeout(saveTimer);
+      writeData();
+    } else {
+      persistNow();
+    }
+  });
 }
 
 export function init() {
@@ -438,18 +466,23 @@ export function signaturePng(id) {
 /** Removes a signature: the data without it and the deletion of its images in one transaction. */
 export function deleteSignature(id) {
   return enqueue(async () => {
-    app.data.signatures = app.data.signatures.filter((s) => s.id !== id);
-    for (const s of app.data.shipments) if (s.signatureId === id) s.signatureId = '';
-    setSigUrl(id, null);
-    if (!loaded) return;
-    const json = snapshot();
-    try {
-      await commit([[DATA_KEY, JSON.parse(json)]], { del: [sigKey(id, 'png'), sigKey(id, 'src')] });
+    const before = app.data.signatures;
+    const users = app.data.shipments.filter((s) => s.signatureId === id);
+    app.data.signatures = before.filter((s) => s.id !== id);
+    for (const s of users) s.signatureId = '';
+    if (loaded) {
+      const json = snapshot();
+      try {
+        await commit([[DATA_KEY, JSON.parse(json)]], { del: [sigKey(id, 'png'), sigKey(id, 'src')] });
+      } catch (err) {
+        // The signature stays, so the list shown matches what is stored.
+        app.data.signatures = before;
+        for (const s of users) s.signatureId = id;
+        throw err;
+      }
       markSaved(json);
-    } catch (err) {
-      app.error = `${SAVE_ERROR}: ${err.message || err}`;
-      throw err;
     }
+    setSigUrl(id, null);
   });
 }
 
@@ -474,16 +507,21 @@ function dataUrlToBlob(url) {
 }
 
 export async function exportBackup() {
-  // Taken first, so a signature added while the images are read is not exported without its image.
-  const data = JSON.parse(snapshot());
-  const ids = data.signatures.map((s) => s.id);
-  const stored = await getMany(ids.flatMap((id) => [sigKey(id, 'png'), sigKey(id, 'src')]), db);
+  // Queued, so a signature save, delete, import or reset cannot change the images
+  // between taking the data and reading the images it refers to.
+  const { data, ids, stored } = await enqueue(async () => {
+    const data = JSON.parse(snapshot());
+    const ids = data.signatures.map((s) => s.id);
+    const stored = await getMany(ids.flatMap((id) => [sigKey(id, 'png'), sigKey(id, 'src')]), db);
+    return { data, ids, stored };
+  });
   // A damaged stored value is left out instead of failing the whole export.
   const toDataUrl = (v) => (v instanceof Blob ? blobToDataUrl(v) : null);
-  const images = {};
-  for (const [i, id] of ids.entries()) {
-    images[id] = { png: await toDataUrl(stored[2 * i]), src: await toDataUrl(stored[2 * i + 1]) };
-  }
+  const images = Object.fromEntries(
+    await Promise.all(
+      ids.map(async (id, i) => [id, { png: await toDataUrl(stored[2 * i]), src: await toDataUrl(stored[2 * i + 1]) }]),
+    ),
+  );
   const payload = {
     format: 'vamnyilatkozat-backup',
     version: 1,
@@ -528,7 +566,9 @@ export async function importBackup(file) {
   const json = JSON.stringify(data);
   const puts = [];
   for (const { id, png, src } of images) {
-    if (png) puts.push([sigKey(id, 'png'), png]);
+    // A signature without its PNG was dropped above, so its photo is not stored either.
+    if (!png) continue;
+    puts.push([sigKey(id, 'png'), png]);
     if (src) puts.push([sigKey(id, 'src'), src]);
   }
   puts.push([DATA_KEY, JSON.parse(json)]);
