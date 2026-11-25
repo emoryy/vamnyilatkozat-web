@@ -227,16 +227,26 @@ function announceSave() {
 }
 
 async function reloadFromStorage() {
-  if (!canSave || replacing) return;
+  // Unsaved edits of this tab are kept: their save follows and the other tabs reload it.
+  const local = snapshot();
+  if (!canSave || replacing || local !== lastSaved) return;
   try {
     const stored = await get(DATA_KEY);
     const data = stored ? normalizeData(stored) : defaults();
-    const pngs = await getMany(data.signatures.map((sig) => sigKey(sig.id, 'png')));
+    // Only images that are new or were edited are read again; the rest keep their URL.
+    const versions = new Map(app.data.signatures.map((sig) => [sig.id, sig.updatedAt]));
+    const changed = data.signatures.filter((sig) => !sigUrls[sig.id] || versions.get(sig.id) !== sig.updatedAt);
+    const pngs = await getMany(changed.map((sig) => sigKey(sig.id, 'png')));
+    // An edit, import or reset in this tab during the reads is newer than what was read.
+    if (!canSave || replacing || snapshot() !== local) return;
     clearTimeout(saveTimer);
-    for (const id of Object.keys(sigUrls)) setSigUrl(id, null);
-    data.signatures.forEach((sig, i) => {
-      if (pngs[i] instanceof Blob) setSigUrl(sig.id, pngs[i]);
-    });
+    const ids = new Set(data.signatures.map((sig) => sig.id));
+    for (const id of Object.keys(sigUrls)) if (!ids.has(id)) setSigUrl(id, null);
+    changed.forEach((sig, i) => setSigUrl(sig.id, pngs[i] instanceof Blob ? pngs[i] : null));
+    // The selected shipment belongs to this tab, so another tab's choice does not switch it.
+    if (data.shipments.some((sh) => sh.id === app.data.currentShipmentId)) {
+      data.currentShipmentId = app.data.currentShipmentId;
+    }
     lastSaved = JSON.stringify(data);
     app.data = data;
   } catch {
@@ -348,7 +358,8 @@ export async function saveSignature(meta, { png, source }) {
   const i = app.data.signatures.findIndex((s) => s.id === meta.id);
   if (i >= 0) app.data.signatures[i] = meta;
   else app.data.signatures = [...app.data.signatures, meta];
-  await persistNow();
+  // Without the stored data the signature is gone on the next load, so this is no success.
+  if (!(await persistNow())) throw new Error(app.error || 'az adatok mentése most szünetel');
 }
 
 export function signatureSource(id) {

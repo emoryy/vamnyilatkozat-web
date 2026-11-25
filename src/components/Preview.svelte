@@ -4,6 +4,7 @@
   import { buildDeclaration } from '../lib/declaration.js';
   import { openPdf, renderPage, rasterizePdf } from '../lib/pdfjs.js';
   import { toast } from '../lib/toast.svelte.js';
+  import { downloadBlob } from '../lib/download.js';
   import Icon from './Icon.svelte';
 
   const RASTER_DPI = 300;
@@ -112,15 +113,9 @@
         const dpi = Math.max(MIN_RASTER_DPI, Math.min(RASTER_DPI, signatureDpi || RASTER_DPI));
         out = await rasterizePdf(bytes, dpi);
       }
-      const url = URL.createObjectURL(new Blob([out], { type: 'application/pdf' }));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileNameFor(spec);
-      document.body.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-      toast(`Letöltve: ${a.download}`);
+      const fileName = fileNameFor(spec);
+      downloadBlob(new Blob([out], { type: 'application/pdf' }), fileName);
+      toast(`Letöltve: ${fileName}`);
     } catch (err) {
       toast(`A PDF nem készült el: ${err.message || err}`, 'error', 6000);
     } finally {

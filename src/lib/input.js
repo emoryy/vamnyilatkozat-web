@@ -41,6 +41,8 @@ const pngCache = new Map();
 async function signatureBytes(id, version) {
   const key = `${id}:${version}`;
   if (!pngCache.has(key)) {
+    // Only the newest version of a signature is ever asked for again.
+    for (const k of pngCache.keys()) if (k.startsWith(`${id}:`)) pngCache.delete(k);
     const bytes = signaturePng(id).then(async (blob) => (blob instanceof Blob ? new Uint8Array(await blob.arrayBuffer()) : null));
     // A failed read is retried on the next render instead of failing every later one.
     bytes.catch(() => pngCache.delete(key));

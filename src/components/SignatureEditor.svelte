@@ -88,8 +88,10 @@
     if (!src || dragging) return;
     pending = true;
     clearTimeout(procTimer);
+    // Numbered when scheduled, so a run still encoding the previous settings cannot clear
+    // `pending` and let a save store its image with these newer params.
+    const my = ++procSeq;
     procTimer = setTimeout(async () => {
-      const my = ++procSeq;
       try {
         const out = processSignature(src, params);
         const url = out ? URL.createObjectURL(await canvasToBlob(out)) : '';
@@ -102,6 +104,8 @@
         processed = out;
         processedUrl = url;
         if (out && !placement) placement = defaultPlacement(out.width, out.height);
+      } catch (err) {
+        if (my === procSeq) toast(`Az aláírás nem dolgozható fel: ${err.message || err}`, 'error', 6000);
       } finally {
         if (my === procSeq) pending = false;
       }

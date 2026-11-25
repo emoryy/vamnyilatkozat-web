@@ -3,6 +3,7 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { PDFDocument } from 'pdf-lib';
 
 import { PAGE } from './field-map.js';
+import { canvasToBlob } from './signature-image.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -49,16 +50,8 @@ export async function renderRegion(bytes, crop, pxPerPt) {
   }
 }
 
-function canvasToBytes(canvas, type, quality) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error('A kép nem készíthető el.'));
-        return;
-      }
-      blob.arrayBuffer().then((b) => resolve(new Uint8Array(b)), reject);
-    }, type, quality);
-  });
+async function canvasToBytes(canvas, type, quality) {
+  return new Uint8Array(await (await canvasToBlob(canvas, type, quality)).arrayBuffer());
 }
 
 /**

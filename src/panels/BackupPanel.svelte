@@ -2,6 +2,7 @@
   import { app, exportBackup, importBackup, resetAll } from '../lib/store.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
   import { todayIso } from '../lib/input.js';
+  import { downloadBlob } from '../lib/download.js';
   import ConfirmButton from '../components/ConfirmButton.svelte';
   import Modal from '../components/Modal.svelte';
   import Icon from '../components/Icon.svelte';
@@ -11,15 +12,7 @@
 
   async function doExport() {
     try {
-      const blob = await exportBackup();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `vamnyilatkozat-mentes-${todayIso()}.json`;
-      document.body.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      downloadBlob(await exportBackup(), `vamnyilatkozat-mentes-${todayIso()}.json`);
       toast('A mentés letöltve.');
     } catch (err) {
       toast(`A mentés nem sikerült: ${err.message || err}`, 'error', 6000);
