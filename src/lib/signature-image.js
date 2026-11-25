@@ -204,8 +204,15 @@ function dilate(mask, W, H) {
  *          sensitivity 0..1 (higher keeps fainter strokes), color 'auto' | 'blue' | 'black'.
  * Returns a canvas, or null if no ink was found.
  */
-export function processSignature(source, { crop = null, sensitivity = 0.5, color = 'auto' } = {}) {
-  const c = crop && crop.w > 4 && crop.h > 4 ? crop : { x: 0, y: 0, w: source.width, h: source.height };
+// The background estimate depends only on the source and the crop, so sensitivity and
+// colour changes reuse it. Weakly keyed: it goes away with the source canvas.
+const darknessCache = new WeakMap();
+
+function darknessMap(source, c) {
+  const key = `${c.x},${c.y},${c.w},${c.h}`;
+  const hit = darknessCache.get(source);
+  if (hit && hit.key === key) return hit;
+
   const W = Math.round(c.w);
   const H = Math.round(c.h);
   const work = makeCanvas(W, H);
@@ -213,15 +220,29 @@ export function processSignature(source, { crop = null, sensitivity = 0.5, color
   wctx.fillStyle = '#fff';
   wctx.fillRect(0, 0, W, H);
   wctx.drawImage(source, c.x, c.y, c.w, c.h, 0, 0, W, H);
-  const img = wctx.getImageData(0, 0, W, H);
-  const d = img.data;
+  const rgba = wctx.getImageData(0, 0, W, H).data;
   const N = W * H;
 
   const lum = new Float32Array(N);
-  for (let i = 0; i < N; i++) lum[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+  for (let i = 0; i < N; i++) lum[i] = 0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2];
   const bg = estimateBackground(lum, W, H);
   const dark = new Float32Array(N);
   for (let i = 0; i < N; i++) dark[i] = Math.max(0, Math.min(1, 1 - lum[i] / bg[i]));
+
+  const entry = { key, W, H, rgba, dark };
+  darknessCache.set(source, entry);
+  return entry;
+}
+
+export function processSignature(source, { crop = null, sensitivity = 0.5, color = 'auto' } = {}) {
+  const c = crop && crop.w > 4 && crop.h > 4 ? crop : { x: 0, y: 0, w: source.width, h: source.height };
+  const { W, H, rgba, dark } = darknessMap(source, c);
+  const work = makeCanvas(W, H);
+  const wctx = work.getContext('2d');
+  // A copy, because the pixels are rewritten below and the cached ones must stay intact.
+  const img = new ImageData(new Uint8ClampedArray(rgba), W, H);
+  const d = img.data;
+  const N = W * H;
 
   const k = 1.6 - Math.max(0, Math.min(1, sensitivity));
   const thr = Math.max(0.08, otsu(dark) * k);

@@ -46,6 +46,26 @@ function defaults() {
   };
 }
 
+/** Fills in fields missing from stored or imported data and repairs the current shipment. */
+function normalizeData(stored) {
+  const base = defaults();
+  const data = {
+    ...base,
+    ...stored,
+    profile: {
+      ...base.profile,
+      ...(stored.profile || {}),
+      parcel: { ...base.profile.parcel, ...(stored.profile?.parcel || {}) },
+    },
+    settings: { ...base.settings, ...(stored.settings || {}) },
+  };
+  if (!data.shipments?.length) data.shipments = base.shipments;
+  if (!data.shipments.some((s) => s.id === data.currentShipmentId)) {
+    data.currentShipmentId = data.shipments[0].id;
+  }
+  return data;
+}
+
 export const app = $state({ ready: false, data: defaults(), error: '' });
 
 // Object URLs of processed signature PNGs, keyed by signature id.
@@ -70,24 +90,19 @@ export function persistNow() {
   if (json === lastSaved) return Promise.resolve();
   lastSaved = json;
   return set(DATA_KEY, JSON.parse(json)).catch((err) => {
+    // Forget the failed snapshot so the next change or pagehide tries again.
+    if (lastSaved === json) lastSaved = '';
     app.error = `A mentés nem sikerült: ${err.message || err}`;
   });
 }
 
 export async function init() {
+  // Without a successful read, autosaving would overwrite the stored data with defaults.
+  let loaded = false;
   try {
     const stored = await get(DATA_KEY);
-    if (stored) {
-      app.data = { ...defaults(), ...stored, settings: { ...defaults().settings, ...(stored.settings || {}) } };
-      if (!app.data.shipments.length) {
-        const s = newShipment();
-        app.data.shipments = [s];
-        app.data.currentShipmentId = s.id;
-      }
-      if (!app.data.shipments.some((s) => s.id === app.data.currentShipmentId)) {
-        app.data.currentShipmentId = app.data.shipments[0].id;
-      }
-    }
+    if (stored) app.data = normalizeData(stored);
+    loaded = true;
     for (const s of app.data.signatures) {
       const png = await get(sigKey(s.id, 'png'));
       if (png) setSigUrl(s.id, png);
@@ -98,6 +113,7 @@ export async function init() {
     app.error = `A böngésző tárhelye nem érhető el (${err.message || err}). Privát ablakban vagy letiltott tárhellyel az adatok nem maradnak meg.`;
   }
   app.ready = true;
+  if (!loaded) return;
 
   $effect.root(() => {
     $effect(() => {
@@ -198,7 +214,7 @@ function blobToDataUrl(blob) {
   });
 }
 
-async function dataUrlToBlob(url) {
+function dataUrlToBlob(url) {
   const [head, b64] = url.split(',');
   const type = /data:([^;]+)/.exec(head)?.[1] || 'application/octet-stream';
   const bin = atob(b64);
@@ -237,24 +253,29 @@ export async function importBackup(file) {
   if (payload?.format !== 'vamnyilatkozat-backup' || !payload.data) {
     throw new Error('Ez nem a Vámnyilatkozat-kitöltő mentése.');
   }
-  await wipeAll();
-  const data = { ...defaults(), ...payload.data };
-  for (const [id, img] of Object.entries(payload.images || {})) {
-    if (img.png) {
-      const blob = await dataUrlToBlob(img.png);
-      await set(sigKey(id, 'png'), blob);
-      setSigUrl(id, blob);
+  // Decode everything before wiping, so a damaged backup leaves the current data intact.
+  const data = normalizeData(payload.data);
+  const images = [];
+  try {
+    for (const [id, img] of Object.entries(payload.images || {})) {
+      images.push({
+        id,
+        png: img?.png ? dataUrlToBlob(img.png) : null,
+        src: img?.src ? dataUrlToBlob(img.src) : null,
+      });
     }
-    if (img.src) await set(sigKey(id, 'src'), await dataUrlToBlob(img.src));
+  } catch {
+    throw new Error('A mentésben lévő aláíráskép sérült.');
+  }
+  await wipeAll();
+  for (const { id, png, src } of images) {
+    if (png) {
+      await set(sigKey(id, 'png'), png);
+      setSigUrl(id, png);
+    }
+    if (src) await set(sigKey(id, 'src'), src);
   }
   app.data = data;
-  if (!app.data.shipments.length) {
-    const s = newShipment();
-    app.data.shipments = [s];
-  }
-  if (!app.data.shipments.some((s) => s.id === app.data.currentShipmentId)) {
-    app.data.currentShipmentId = app.data.shipments[0].id;
-  }
   await persistNow();
 }
 

@@ -13,6 +13,9 @@ const MONTHS_HU = [
 
 const NONE = 'nincs';
 
+// Rows that fit on one continuation page between its header (y 738) and a 30 pt bottom margin.
+const CONTINUATION_ROWS = 40;
+
 let assetsPromise = null;
 
 function loadAssets() {
@@ -117,7 +120,7 @@ function clean(value) {
 
 export function itemRows(items) {
   return (items || [])
-    .filter((it) => clean(it.term) || Number(it.unitPrice) || clean(it.mpid) || clean(it.spid))
+    .filter((it) => clean(it.term) || Number(it.unitPrice) || clean(it.mpid) || clean(it.nspid) || clean(it.spid))
     .map((it) => {
       const qty = Number(it.qty) > 0 ? Number(it.qty) : 1;
       const unit = Number(it.unitPrice) || 0;
@@ -263,8 +266,8 @@ export async function buildDeclaration(input) {
     signatureDpi = sig.width / (width / 72);
   }
 
-  if (rows.length > MAX_ROWS) {
-    drawContinuationPage(doc, font, rows.slice(MAX_ROWS), MAX_ROWS + 1, currency);
+  for (let i = MAX_ROWS; i < rows.length; i += CONTINUATION_ROWS) {
+    drawContinuationPage(doc, font, rows.slice(i, i + CONTINUATION_ROWS), i + 1, currency);
   }
 
   try {

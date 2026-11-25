@@ -4,7 +4,7 @@
     termOptions, docOptions, remember, uid,
   } from '../lib/store.svelte.js';
   import { CURRENCIES } from '../lib/catalog.js';
-  import { formatMoney } from '../lib/declaration.js';
+  import { formatMoney, itemRows } from '../lib/declaration.js';
   import { todayIso } from '../lib/input.js';
   import { MAX_ROWS } from '../lib/field-map.js';
   import Combobox from '../components/Combobox.svelte';
@@ -92,6 +92,8 @@
   }
 
   let itemsTotal = $derived(s.items.reduce((sum, it) => sum + lineTotal(it), 0));
+  // Blank rows are left off the form, so only filled ones count towards the continuation sheet.
+  let filledCount = $derived(itemRows(s.items).length);
 </script>
 
 <div class="stack">
@@ -164,8 +166,8 @@
 
   <section class="card">
     <div class="items-head">
-      <h2 class="section-title"><b class="num">(5)–(11)</b> Tételek</h2>
-      <span class="hint">{s.items.length} tétel{#if s.items.length > MAX_ROWS}, ebből {s.items.length - MAX_ROWS} pótlapra kerül{/if}</span>
+      <h2 class="section-title"><b class="num">(5)-(11)</b> Tételek</h2>
+      <span class="hint">{s.items.length} tétel{#if filledCount > MAX_ROWS}, ebből {filledCount - MAX_ROWS} pótlapra kerül{/if}</span>
     </div>
 
     <ol class="items">

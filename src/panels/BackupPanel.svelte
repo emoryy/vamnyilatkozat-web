@@ -1,6 +1,7 @@
 <script>
   import { app, exportBackup, importBackup, resetAll } from '../lib/store.svelte.js';
   import { toast } from '../lib/toast.svelte.js';
+  import { todayIso } from '../lib/input.js';
   import ConfirmButton from '../components/ConfirmButton.svelte';
   import Modal from '../components/Modal.svelte';
   import Icon from '../components/Icon.svelte';
@@ -13,9 +14,8 @@
       const blob = await exportBackup();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      const d = new Date();
       a.href = url;
-      a.download = `vamnyilatkozat-mentes-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.json`;
+      a.download = `vamnyilatkozat-mentes-${todayIso()}.json`;
       document.body.append(a);
       a.click();
       a.remove();

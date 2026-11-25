@@ -61,16 +61,24 @@
   // ---- processing (debounced; large photos take a moment)
 
   let procTimer;
+  let procSeq = 0;
   $effect(() => {
     const src = source;
     const params = { crop: crop ? { ...crop } : null, sensitivity, color };
     if (!src || dragging) return;
     clearTimeout(procTimer);
     procTimer = setTimeout(async () => {
+      const my = ++procSeq;
       const out = processSignature(src, params);
-      processed = out;
+      const url = out ? URL.createObjectURL(await canvasToBlob(out)) : '';
+      // A newer run started while this one encoded its PNG: its result wins.
+      if (my !== procSeq) {
+        if (url) URL.revokeObjectURL(url);
+        return;
+      }
       if (processedUrl) URL.revokeObjectURL(processedUrl);
-      processedUrl = out ? URL.createObjectURL(await canvasToBlob(out)) : '';
+      processed = out;
+      processedUrl = url;
       if (out && !placement) placement = defaultPlacement(out.width, out.height);
     }, 120);
     return () => clearTimeout(procTimer);

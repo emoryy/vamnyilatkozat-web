@@ -7,6 +7,7 @@
   import Icon from './Icon.svelte';
 
   const RASTER_DPI = 300;
+  const MIN_RASTER_DPI = 200;
 
   let pagesEl;
   let scroller;
@@ -103,8 +104,10 @@
       const { bytes, signatureDpi } = await buildDeclaration(await resolveInput(spec));
       let out = bytes;
       if (app.data.settings.rasterize) {
-        // Never render above the signature's own resolution, so it is not blurred by upscaling.
-        out = await rasterizePdf(bytes, Math.min(RASTER_DPI, signatureDpi || RASTER_DPI));
+        // Stay at the signature's own resolution so it is not upscaled, but never so low
+        // that a small signature scan blurs the printed text of the whole form.
+        const dpi = Math.max(MIN_RASTER_DPI, Math.min(RASTER_DPI, signatureDpi || RASTER_DPI));
+        out = await rasterizePdf(bytes, dpi);
       }
       const url = URL.createObjectURL(new Blob([out], { type: 'application/pdf' }));
       const a = document.createElement('a');

@@ -13,20 +13,20 @@ const R = 566;
 export const SINGLE = {
   trackingNum: [L, 494, R, 508], // (1) Küldeményazonosító
 
-  // (2) Feladó adatai — the foreign sender (shop)
+  // (2) Feladó adatai: the foreign sender (shop)
   senderName: [L, 473, R, 487],
   senderCountry: [L, 458, R, 472],
   senderZip: [L, 442, R, 457],
   senderCity: [L, 427, R, 441],
   senderAddress: [L, 412, R, 426],
 
-  // (3) Küldeményen szereplő címadatok — address as printed on the parcel (recipient)
+  // (3) Küldeményen szereplő címadatok: address as printed on the parcel (recipient)
   parcelName: [L, 391, R, 405],
   parcelCity: [L, 376, R, 390],
   parcelAddress: [L, 360, R, 374],
   parcelZip: [L, 345, R, 359],
 
-  // (4) Nyilatkozatot benyújtó adatai — declarant
+  // (4) Nyilatkozatot benyújtó adatai: declarant
   declarantName: [L, 324, R, 338],
   declarantCity: [L, 309, R, 323],
   declarantAddress: [L, 293, R, 308],

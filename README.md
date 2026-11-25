@@ -16,7 +16,7 @@ npm run build     # dist/
 
 - `src/lib/declaration.js`: a nyomtatvány kitöltése pdf-lib-bel. A szöveg a mezők téglalapjaiba kerül beágyazott Unicode betűkészlettel (LiberationSerif), nem az AcroForm mezőkbe, az `ő` / `ű` betűk miatt. Az 5 sornál több tétel pótlapra kerül.
 - `src/lib/field-map.js`: a mezők koordinátái a 2026-10-es nyomtatványon.
-- `src/lib/pdfjs.js`: előnézet és a „Képként (laposítva)” letöltés pdf.js-sel. A laposítás felbontása legfeljebb 300 DPI, és nem nagyobb az aláíráskép saját felbontásánál.
+- `src/lib/pdfjs.js`: előnézet és a „Képként (laposítva)” letöltés pdf.js-sel. A laposítás felbontása az aláíráskép saját felbontása (hogy ne nagyítódjon fel), de legalább 200 és legfeljebb 300 DPI, hogy egy kis felbontású aláírás miatt ne mosódjon el a nyomtatvány szövege.
 - `src/lib/signature-image.js`: aláíráskép feldolgozása: papír-háttér becslése (egyenetlen megvilágításhoz is), Otsu-küszöb, apró foltok eltávolítása összefüggő komponensek alapján, levágás a tintára.
 - `src/lib/store.svelte.js`: állapot és tárolás (idb-keyval), mentés és visszatöltés JSON-ból.
 - `src/lib/catalog.js`: beépített feladók, megnevezések, dokumentumtípusok.
