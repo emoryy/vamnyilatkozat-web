@@ -1,0 +1,163 @@
+// Built-in choices offered next to the user's own saved entries.
+
+export const BUILTIN_SHOPS = [
+  {
+    id: 'b:amiami',
+    label: 'AmiAmi',
+    name: 'Oh-ami Inc',
+    country: 'Japán',
+    zip: '252-0244',
+    city: 'Sagamihara',
+    address: 'GLP ALFALINK SAGAMIHARA2 2F, 3532-15 AZA SHIRASAMEDAI, TANA, CHUO-KU, KANAGAWA',
+  },
+  {
+    id: 'b:biginjapan',
+    label: 'Big in Japan',
+    name: 'Big in Japan',
+    country: 'Japán',
+    zip: '111-0043',
+    city: 'Tokyo',
+    address: 'Kaminaga Building 5F, Komagata 2-5-6, Taito-ku',
+  },
+  // Sources checked 2026-11-25: the shops' legal notice / about pages.
+  {
+    id: 'b:hlj',
+    label: 'HobbyLink Japan',
+    name: 'HobbyLink Japan Ltd.',
+    country: 'Japán',
+    zip: '327-0813',
+    city: 'Sano',
+    address: '162-1 Kurohakama-cho, Tochigi',
+  },
+  {
+    id: 'b:solarisjapan',
+    label: 'Solaris Japan',
+    name: 'Solaris Japan Co., Ltd.',
+    country: 'Japán',
+    zip: '187-0043',
+    city: 'Kodaira',
+    address: 'Hirayama Bldg. B1, 1-4-39 Gakuen-higashi-cho, Tokyo',
+  },
+  {
+    id: 'b:ninningame',
+    label: 'Nin-Nin Game',
+    name: 'N2G Export, LLC (Nin-Nin Game)',
+    country: 'Japán',
+    zip: '542-0081',
+    city: 'Osaka',
+    address: 'Minami-Semba 4-11-16 6F, Chuo-ku',
+  },
+  {
+    id: 'b:tokyootakumode',
+    label: 'Tokyo Otaku Mode',
+    name: 'Tokyo Otaku Mode Co. Ltd.',
+    country: 'Japán',
+    zip: '102-0093',
+    city: 'Tokyo',
+    address: 'MIDORI.so NAGATACHO 5F, 2-5-3 Hirakawacho, Chiyoda-ku',
+  },
+  {
+    id: 'b:cdjapan',
+    label: 'CDJapan',
+    name: 'Neowing Corporation (CDJapan)',
+    country: 'Japán',
+    zip: '103-0012',
+    city: 'Tokyo',
+    address: '1-10-15-3F Nihonbashi Horidome, Chuo-ku',
+  },
+  // Mandarake ships from the store that holds the item; the store is named on the invoice.
+  {
+    id: 'b:mandarake-nakano',
+    label: 'Mandarake Nakano',
+    name: 'Mandarake Nakano',
+    country: 'Japán',
+    zip: '164-0001',
+    city: 'Tokyo',
+    address: 'Nakano 5-52-15, Nakano-ku',
+  },
+  {
+    id: 'b:mandarake-shibuya',
+    label: 'Mandarake Shibuya',
+    name: 'Mandarake Shibuya',
+    country: 'Japán',
+    zip: '150-0042',
+    city: 'Tokyo',
+    address: 'Shibuya BEAM B2 floor, Udagawa-cho 31-2, Shibuya-ku',
+  },
+  {
+    id: 'b:mandarake-nayuta',
+    label: 'Mandarake Nayuta',
+    name: 'Mandarake Nayuta',
+    country: 'Japán',
+    zip: '170-0013',
+    city: 'Tokyo',
+    address: "P'PARCO B2F, Higashi-Ikebukuro 1-50-35, Toshima-ku",
+  },
+  {
+    id: 'b:mandarake-sahra',
+    label: 'Mandarake SAHRA',
+    name: 'Mandarake SAHRA',
+    country: 'Japán',
+    zip: '287-0816',
+    city: 'Katori',
+    address: '4365 Sawaraha, Chiba',
+  },
+  {
+    id: 'b:mandarake-grandchaos',
+    label: 'Mandarake Grandchaos',
+    name: 'Mandarake Grandchaos',
+    country: 'Japán',
+    zip: '556-0005',
+    city: 'Osaka',
+    address: 'Nipponbashi 4-12-6, Naniwa-ku, Osaka',
+  },
+];
+
+// Customs descriptions for field (5). The form's guide asks for a specific description
+// (not "toy", "part", "sample"). Adult collector figures are ornamental articles
+// (EU heading 3926 40), not toys (9503).
+export const BUILTIN_TERMS = [
+  'Műanyag gyűjtői figura (dísztárgy)',
+  'Műanyag makett építőkészlet',
+  'Műanyag makett kiegészítő készlet',
+  'Műanyag miniatűr dísztárgy',
+  'Akril dísztárgy (állvány)',
+  'Akril dísztárgy (dioráma)',
+  'Plüssfigura',
+  'Könyv',
+  'Művészeti album (könyv)',
+  'Képregény (könyv)',
+  'Nyomtatott kiadvány',
+  'Nyomtatott illusztráció (karton)',
+  'Pamut póló',
+  'Kapucnis pulóver',
+  'Pamut törölköző',
+  'Mikroszálas törölköző',
+  'Pamut párnahuzat',
+  'Textil faliszőnyeg (poszter)',
+  'Textil függöny',
+  'Műanyag irattartó mappa',
+  'Műanyag írásalátét',
+  'Egérpad',
+  'Asztali alátét (egérpad)',
+  'Poháralátét',
+  'Gumi kulcstartó dísz',
+  'Bőr kulcstartó dísz',
+  'Bőr tok',
+  'Blu-ray lemez',
+  'Videolemez',
+  'Gyűjthető kártya',
+];
+
+export const BUILTIN_DOCS = [
+  'PayPal fizetési igazolás',
+  'Bankkártyás fizetési igazolás',
+  'Számla',
+  'Szállítási értesítő e-mail',
+  'Rendelés-visszaigazoló e-mail',
+  'Megrendelés adatlap (képernyőkép)',
+];
+
+export const CURRENCIES = ['JPY', 'USD', 'EUR', 'GBP', 'CNY', 'KRW', 'HKD', 'TWD', 'CAD', 'AUD', 'CHF', 'HUF'];
+
+export const COUNTRIES = ['Japán', 'Kína', 'Dél-Korea', 'Tajvan', 'Hongkong', 'Amerikai Egyesült Államok', 'Egyesült Királyság', 'Kanada', 'Ausztrália', 'Svájc'];

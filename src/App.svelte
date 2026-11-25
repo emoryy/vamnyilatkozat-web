@@ -1,0 +1,272 @@
+<script>
+  import { app } from './lib/store.svelte.js';
+  import Toasts from './components/Toasts.svelte';
+  import Preview from './components/Preview.svelte';
+  import ShipmentPanel from './panels/ShipmentPanel.svelte';
+  import ShopsPanel from './panels/ShopsPanel.svelte';
+  import ProfilePanel from './panels/ProfilePanel.svelte';
+  import SignaturesPanel from './panels/SignaturesPanel.svelte';
+  import ListsPanel from './panels/ListsPanel.svelte';
+  import BackupPanel from './panels/BackupPanel.svelte';
+
+  const TABS = [
+    { id: 'shipment', label: 'Küldemény' },
+    { id: 'shops', label: 'Feladók' },
+    { id: 'profile', label: 'Adataim' },
+    { id: 'signature', label: 'Aláírás' },
+    { id: 'lists', label: 'Listák' },
+    { id: 'backup', label: 'Mentés' },
+  ];
+
+  function readTab() {
+    try {
+      return localStorage.getItem('tab') || 'shipment';
+    } catch {
+      return 'shipment';
+    }
+  }
+
+  let tab = $state(readTab());
+
+  function select(id) {
+    tab = id;
+    try {
+      localStorage.setItem('tab', id);
+    } catch {
+      // Remembering the tab is only a convenience.
+    }
+  }
+
+  let needsProfile = $derived(app.ready && !app.data.profile.name.trim());
+  let needsSignature = $derived(app.ready && !app.data.signatures.length);
+</script>
+
+<div class="shell">
+  <header class="masthead">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+        <rect x="6" y="10" width="52" height="44" rx="4" fill="#fffdf8" stroke="currentColor" stroke-width="4" />
+        <path d="M14 22h24M14 31h30M14 40h18" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+        <circle cx="47" cy="40" r="9" fill="none" stroke="var(--red)" stroke-width="4" />
+      </svg>
+      <div>
+        <h1>Vámnyilatkozat-kitöltő</h1>
+        <p>Nyilatkozat automatikus postai vámkezelésű küldeményhez, 2026-10-es nyomtatvány</p>
+      </div>
+    </div>
+    <p class="local">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+      Minden adat csak ebben a böngészőben marad, semmit nem küldünk el.
+    </p>
+  </header>
+
+  <main>
+    <aside class="sidebar">
+      <nav class="tabs" aria-label="Szakaszok">
+        {#each TABS as t (t.id)}
+          <button
+            type="button"
+            class="tab"
+            class:active={tab === t.id}
+            aria-current={tab === t.id ? 'page' : undefined}
+            onclick={() => select(t.id)}
+          >
+            {t.label}
+            {#if (t.id === 'profile' && needsProfile) || (t.id === 'signature' && needsSignature)}<i class="dot" title="Még nincs kitöltve"></i>{/if}
+          </button>
+        {/each}
+      </nav>
+
+      <div class="panel">
+        {#if app.error}<p class="notice warn">{app.error}</p>{/if}
+        {#if !app.ready}
+          <p class="hint">Betöltés…</p>
+        {:else if tab === 'shipment'}
+          <ShipmentPanel onnavigate={select} />
+        {:else if tab === 'shops'}
+          <ShopsPanel />
+        {:else if tab === 'profile'}
+          <ProfilePanel />
+        {:else if tab === 'signature'}
+          <SignaturesPanel />
+        {:else if tab === 'lists'}
+          <ListsPanel />
+        {:else if tab === 'backup'}
+          <BackupPanel />
+        {/if}
+      </div>
+
+      <footer class="disclaimer">
+        Nem hivatalos segédeszköz, a Magyar Posta Zrt.-hez nincs köze. A kitöltött nyomtatvány tartalmáért a nyilatkozatot benyújtó felel.
+      </footer>
+    </aside>
+
+    <section class="preview-area" aria-label="Előnézet">
+      {#if app.ready}<Preview />{/if}
+    </section>
+  </main>
+</div>
+
+<Toasts />
+
+<style>
+  .shell {
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto 1fr;
+  }
+  .masthead {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px;
+    border-bottom: 2px solid var(--ink);
+    background: var(--paper);
+    flex-wrap: wrap;
+  }
+  .brand {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .mark {
+    width: 40px;
+    height: 40px;
+    color: var(--ink);
+    flex: none;
+  }
+  h1 {
+    font-size: 23px;
+    font-weight: 800;
+    line-height: 1.1;
+  }
+  .brand p {
+    margin: 2px 0 0;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+  .local {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--green);
+    background: var(--green-soft);
+    border: 1px solid #b6dbc3;
+    padding: 5px 11px;
+    border-radius: 99px;
+  }
+  main {
+    display: grid;
+    grid-template-columns: minmax(460px, 600px) 1fr;
+    min-height: 0;
+  }
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-right: 1px solid var(--line-strong);
+    background: var(--paper);
+  }
+  .tabs {
+    display: flex;
+    gap: 2px;
+    padding: 10px 14px 0;
+    border-bottom: 1px solid var(--line-strong);
+    background: var(--paper-2);
+    overflow-x: auto;
+  }
+  .tab {
+    position: relative;
+    border: 1px solid transparent;
+    border-bottom: none;
+    background: transparent;
+    padding: 8px 12px 9px;
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--ink-2);
+    border-radius: 7px 7px 0 0;
+    cursor: pointer;
+    white-space: nowrap;
+    margin-bottom: -1px;
+  }
+  .tab:hover {
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.45);
+  }
+  .tab.active {
+    background: var(--paper);
+    border-color: var(--line-strong);
+    color: var(--ink);
+  }
+  .tab.active::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: -1px;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: var(--red);
+  }
+  .dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--red);
+    margin-left: 5px;
+    vertical-align: 2px;
+  }
+  .panel {
+    position: relative;
+    flex: 1;
+    overflow: auto;
+    padding: 16px 16px 24px;
+  }
+  .disclaimer {
+    font-size: 12.5px;
+    color: var(--ink-2);
+    padding: 10px 16px;
+    border-top: 1px solid var(--line);
+    background: var(--paper-2);
+  }
+  .preview-area {
+    min-height: 0;
+    background:
+      radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.05) 1px, transparent 0) 0 0 / 18px 18px,
+      var(--desk);
+    color: var(--desk-ink);
+    display: flex;
+    flex-direction: column;
+  }
+  @media (max-width: 980px) {
+    .shell {
+      height: auto;
+    }
+    main {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .sidebar {
+      border-right: none;
+    }
+    .panel {
+      overflow: visible;
+    }
+    .preview-area {
+      min-height: 80vh;
+    }
+  }
+  @media (max-width: 520px) {
+    .masthead {
+      padding: 10px 16px;
+    }
+    .panel {
+      padding: 14px 16px 20px;
+    }
+  }
+</style>

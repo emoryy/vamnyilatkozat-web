@@ -1,0 +1,37 @@
+# Vámnyilatkozat-kitöltő
+
+Statikus webapp a Magyar Posta „Nyilatkozat automatikus postai vámkezelésű küldeményhez” nyomtatványának (2026-10-es kiadás) kitöltéséhez. Minden a böngészőben fut: a PDF-et a böngésző állítja elő, az adatok (saját adatok, feladók, küldemények, listák, aláírásképek) a böngésző IndexedDB-jében maradnak. Nincs szerveroldali komponens, nincs külső kérés.
+
+Nem hivatalos eszköz, a Magyar Posta Zrt.-hez nincs köze.
+
+## Fejlesztés
+
+```bash
+npm install
+npm run dev       # http://127.0.0.1:47619
+npm run build     # dist/
+```
+
+## Felépítés
+
+- `src/lib/declaration.js`: a nyomtatvány kitöltése pdf-lib-bel. A szöveg a mezők téglalapjaiba kerül beágyazott Unicode betűkészlettel (LiberationSerif), nem az AcroForm mezőkbe, az `ő` / `ű` betűk miatt. Az 5 sornál több tétel pótlapra kerül.
+- `src/lib/field-map.js`: a mezők koordinátái a 2026-10-es nyomtatványon.
+- `src/lib/pdfjs.js`: előnézet és a „Képként (laposítva)” letöltés pdf.js-sel. A laposítás felbontása legfeljebb 300 DPI, és nem nagyobb az aláíráskép saját felbontásánál.
+- `src/lib/signature-image.js`: aláíráskép feldolgozása: papír-háttér becslése (egyenetlen megvilágításhoz is), Otsu-küszöb, apró foltok eltávolítása összefüggő komponensek alapján, levágás a tintára.
+- `src/lib/store.svelte.js`: állapot és tárolás (idb-keyval), mentés és visszatöltés JSON-ból.
+- `src/lib/catalog.js`: beépített feladók, megnevezések, dokumentumtípusok.
+- `public/_headers`: Cloudflare Pages fejlécek, szigorú CSP (`connect-src 'self'`), így az oldal külső címre nem küldhet adatot.
+
+## Beépített feladócímek
+
+A címek a webshopok saját jogi közlemény / cégadat oldaláról származnak (2026-11-25), a Mandarake boltoké a Mandarake számlákról. Nem szerepel: Hobby Search (az oldal automatikusan nem érhető el, a cím csak cégjegyzékből ismert), Suruga-ya (nem érhető el), Plaza Japan és Goods Republic (nem közölnek címet).
+
+## Telepítés
+
+Cloudflare Pages, statikus: a `dist/` mappa tartalma, build parancs `npm run build`, kimenet `dist`.
+
+## Harmadik fél tartalma
+
+- `public/assets/nyilatkozat-2026-10.pdf`: a Magyar Posta nyilvánosan letölthető nyomtatványa, változatlanul.
+- `public/assets/LiberationSerif-Regular.ttf`: Liberation Fonts, SIL Open Font License 1.1 (`public/assets/LiberationSerif-LICENSE.txt`).
+- Felület betűkészletek (Bricolage Grotesque, Public Sans, IBM Plex Mono): SIL Open Font License 1.1, a `@fontsource` csomagokból, helyben kiszolgálva.
