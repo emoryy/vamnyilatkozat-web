@@ -43,8 +43,12 @@
   }
 
   async function doReset() {
-    await resetAll();
-    toast('Minden adat törölve ebből a böngészőből.');
+    try {
+      await resetAll();
+      toast('Minden adat törölve ebből a böngészőből.');
+    } catch (err) {
+      toast(err.message || String(err), 'error', 6000);
+    }
   }
 </script>
 

@@ -49,9 +49,20 @@ function defaults() {
 const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const text = (v, fallback = '') => (typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : fallback);
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
-// Number inputs hold a number, or '' while empty.
+// Number inputs hold a number; a cleared one holds null (bound by Svelte) or '' (fresh rows).
 const amount = (v, fallback = '') => (finite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : fallback);
 const list = (v, keep) => (Array.isArray(v) ? v.filter(keep) : []);
+const strings = (v) => [...new Set(list(v, (s) => typeof s === 'string'))];
+
+// Keyed {#each} blocks throw on a repeated key, so a repeated id gets a fresh one.
+function uniqueIds(records) {
+  const seen = new Set();
+  for (const r of records) {
+    if (seen.has(r.id)) r.id = uid();
+    seen.add(r.id);
+  }
+  return records;
+}
 
 function normalizePerson(p) {
   const src = isObject(p) ? p : {};
@@ -71,7 +82,7 @@ function normalizeItem(it) {
 }
 
 function normalizeShipment(sh) {
-  const items = list(sh.items, isObject).map(normalizeItem);
+  const items = uniqueIds(list(sh.items, isObject).map(normalizeItem));
   return {
     id: text(sh.id) || uid(),
     trackingNum: text(sh.trackingNum),
@@ -80,7 +91,7 @@ function normalizeShipment(sh) {
     date: /^\d{4}-\d{2}-\d{2}$/.test(sh.date) ? sh.date : '',
     shippingCost: amount(sh.shippingCost),
     items: items.length ? items : [emptyItem()],
-    docs: list(sh.docs, (d) => typeof d === 'string'),
+    docs: strings(sh.docs),
     signatureId: text(sh.signatureId),
     createdAt: finite(sh.createdAt) ? sh.createdAt : Date.now(),
   };
@@ -95,13 +106,31 @@ function normalizeShop(shop) {
 /** A signature is only usable with its image size and placement; anything else is dropped. */
 function normalizeSignature(sig) {
   const p = sig.placement;
-  if (typeof sig.id !== 'string' || !(sig.width > 0) || !(sig.height > 0)) return null;
-  if (!isObject(p) || !finite(p.x) || !finite(p.y) || !(p.width > 0)) return null;
-  return {
-    ...sig,
+  const positive = (v) => finite(v) && v > 0;
+  if (typeof sig.id !== 'string' || !sig.id || !positive(sig.width) || !positive(sig.height)) return null;
+  if (!isObject(p) || !finite(p.x) || !finite(p.y) || !positive(p.width)) return null;
+  const out = {
+    id: sig.id,
     name: text(sig.name) || 'Aláírás',
+    width: sig.width,
+    height: sig.height,
     placement: { x: p.x, y: p.y, width: p.width },
-    params: isObject(sig.params) ? sig.params : {},
+    params: normalizeSignatureParams(sig.params),
+  };
+  if (finite(sig.createdAt)) out.createdAt = sig.createdAt;
+  if (finite(sig.updatedAt)) out.updatedAt = sig.updatedAt;
+  return out;
+}
+
+/** The editor feeds these straight into processSignature, where a non-number blanks the result. */
+function normalizeSignatureParams(params) {
+  const src = isObject(params) ? params : {};
+  const c = src.crop;
+  const crop = isObject(c) && [c.x, c.y, c.w, c.h].every(finite) ? { x: c.x, y: c.y, w: c.w, h: c.h } : null;
+  return {
+    crop,
+    sensitivity: finite(src.sensitivity) ? Math.max(0, Math.min(1, src.sensitivity)) : 0.5,
+    color: text(src.color) || 'auto',
   };
 }
 
@@ -117,14 +146,20 @@ function normalizeData(stored) {
       parcelDiffers: profile.parcelDiffers === true,
       parcel: normalizePerson(profile.parcel),
     },
-    shops: list(stored.shops, isObject).map(normalizeShop),
-    terms: list(stored.terms, (v) => typeof v === 'string'),
-    docs: list(stored.docs, (v) => typeof v === 'string'),
-    signatures: list(stored.signatures, isObject).map(normalizeSignature).filter(Boolean),
-    shipments: list(stored.shipments, isObject).map(normalizeShipment),
+    shops: uniqueIds(list(stored.shops, isObject).map(normalizeShop)),
+    terms: strings(stored.terms),
+    docs: strings(stored.docs),
+    // A signature id also names its image keys, so a repeated one is dropped, not renamed.
+    signatures: list(stored.signatures, isObject)
+      .map(normalizeSignature)
+      .filter((sig, i, all) => sig && all.findIndex((x) => x?.id === sig.id) === i),
+    shipments: uniqueIds(list(stored.shipments, isObject).map(normalizeShipment)),
     currentShipmentId: text(stored.currentShipmentId),
     settings: { rasterize: typeof settings.rasterize === 'boolean' ? settings.rasterize : base.settings.rasterize },
   };
+  // A shipment pointing at a dropped signature would silently be signed with the first one.
+  const sigIds = new Set(data.signatures.map((sig) => sig.id));
+  for (const sh of data.shipments) if (!sigIds.has(sh.signatureId)) sh.signatureId = '';
   if (!data.shipments.length) data.shipments = base.shipments;
   if (!data.shipments.some((sh) => sh.id === data.currentShipmentId)) {
     data.currentShipmentId = data.shipments[0].id;
@@ -148,6 +183,10 @@ let lastSaved = '';
 // Until the stored data was read (or replaced on purpose), any save would overwrite it with defaults.
 let canSave = false;
 let autosaving = false;
+// An import or reset replacing the stored data; a second one at the same time would
+// restore the wrong saving state when it finishes.
+let replacing = false;
+const BUSY = 'Egy visszatöltés vagy törlés már folyamatban van.';
 const SAVE_ERROR = 'A mentés nem sikerült';
 
 function snapshot() {
@@ -188,23 +227,26 @@ function startAutosave() {
 
 export async function init() {
   let loaded = false;
-  let parsing = false;
+  let phase = 'read';
   try {
     const stored = await get(DATA_KEY);
-    parsing = true;
+    phase = 'parse';
     if (stored) app.data = normalizeData(stored);
-    parsing = false;
+    phase = 'images';
     loaded = true;
+    lastSaved = snapshot();
     const pngs = await getMany(app.data.signatures.map((s) => sigKey(s.id, 'png')));
     app.data.signatures.forEach((s, i) => {
       if (pngs[i]) setSigUrl(s.id, pngs[i]);
     });
-    lastSaved = snapshot();
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   } catch (err) {
-    app.error = parsing
-      ? `A tárolt adatok sérültek (${err.message || err}). Amíg nem töltesz vissza egy mentést, vagy nem törlöd az adatokat, semmi nem mentődik.`
-      : `A böngésző tárhelye nem érhető el (${err.message || err}). Privát ablakban vagy letiltott tárhellyel az adatok nem maradnak meg.`;
+    const why = err.message || err;
+    app.error = {
+      read: `A böngésző tárhelye nem érhető el (${why}). Privát ablakban vagy letiltott tárhellyel az adatok nem maradnak meg.`,
+      parse: `A tárolt adatok sérültek (${why}). Amíg nem töltesz vissza egy mentést, vagy nem törlöd az adatokat, semmi nem mentődik.`,
+      images: `Az aláírásképek nem tölthetők be (${why}).`,
+    }[phase];
   }
   app.ready = true;
   if (loaded) startAutosave();
@@ -343,9 +385,12 @@ export async function importBackup(file) {
   }
   // Decode everything before wiping, so a damaged backup leaves the current data intact.
   const data = normalizeData(payload.data);
+  const sigIds = new Set(data.signatures.map((s) => s.id));
   const images = [];
   try {
-    for (const [id, img] of Object.entries(payload.images || {})) {
+    for (const [id, img] of Object.entries(isObject(payload.images) ? payload.images : {})) {
+      // Images of signatures dropped by normalizeData would only be stored and never used.
+      if (!sigIds.has(id)) continue;
       images.push({
         id,
         png: img?.png ? dataUrlToBlob(img.png) : null,
@@ -359,6 +404,8 @@ export async function importBackup(file) {
   // quota) changes nothing, not even images whose ids the current data shares; the old
   // keys are dropped only afterwards.
   // Saving is paused meanwhile, so an autosave of the old data cannot land after the new one.
+  if (replacing) throw new Error(BUSY);
+  replacing = true;
   const couldSave = canSave;
   canSave = false;
   const json = JSON.stringify(data);
@@ -369,20 +416,24 @@ export async function importBackup(file) {
   }
   entries.push([DATA_KEY, JSON.parse(json)]);
   try {
-    await setMany(entries);
-  } catch (err) {
-    canSave = couldSave;
-    // An edit made while the import ran was not saved; save it now.
-    persistNow();
-    throw new Error(`A mentés nem tölthető vissza: ${err.message || err}`);
+    try {
+      await setMany(entries);
+    } catch (err) {
+      canSave = couldSave;
+      // An edit made while the import ran was not saved; save it now.
+      persistNow();
+      throw new Error(`A mentés nem tölthető vissza: ${err.message || err}`);
+    }
+    // The new data is stored by now; old keys left behind by a failed cleanup are only unused.
+    await wipeAll(new Set(entries.map(([k]) => k))).catch(() => {});
+    for (const { id, png } of images) if (png) setSigUrl(id, png);
+    app.data = data;
+    app.error = '';
+    lastSaved = json;
+    startAutosave();
+  } finally {
+    replacing = false;
   }
-  // The new data is stored by now; old keys left behind by a failed cleanup are only unused.
-  await wipeAll(new Set(entries.map(([k]) => k))).catch(() => {});
-  for (const { id, png } of images) if (png) setSigUrl(id, png);
-  app.data = data;
-  app.error = '';
-  lastSaved = json;
-  startAutosave();
 }
 
 async function wipeAll(keep = new Set()) {
@@ -394,10 +445,17 @@ async function wipeAll(keep = new Set()) {
 }
 
 export async function resetAll() {
-  await wipeAll();
-  app.data = defaults();
-  app.error = '';
-  startAutosave();
-  await persistNow();
+  if (replacing) throw new Error(BUSY);
+  replacing = true;
+  try {
+    await wipeAll();
+    app.data = defaults();
+    app.error = '';
+    startAutosave();
+    await persistNow();
+  } finally {
+    replacing = false;
+  }
+  if (app.error) throw new Error(app.error);
 }
 
