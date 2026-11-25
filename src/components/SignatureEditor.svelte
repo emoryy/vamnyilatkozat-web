@@ -36,11 +36,18 @@
   let showLine = $state(true);
 
   onMount(() => {
+    let closed = false;
+    // A URL created after the editor closed would never be revoked by the cleanup below.
+    const keepUrl = (url) => {
+      if (closed) URL.revokeObjectURL(url);
+      return !closed;
+    };
     (async () => {
       try {
         const canvas = file ? await loadSourceImage(file) : await blobToCanvas(await signatureSource(existing.id));
         source = canvas;
-        sourceUrl = URL.createObjectURL(await canvasToBlob(canvas, 'image/jpeg', 0.9));
+        const url = URL.createObjectURL(await canvasToBlob(canvas, 'image/jpeg', 0.9));
+        if (keepUrl(url)) sourceUrl = url;
       } catch (err) {
         loadError = err.message || String(err);
       }
@@ -48,12 +55,14 @@
     (async () => {
       try {
         const bg = await renderRegion(await templateBytes(), CROP, 4);
-        bgUrl = URL.createObjectURL(await canvasToBlob(bg));
+        const url = URL.createObjectURL(await canvasToBlob(bg));
+        if (keepUrl(url)) bgUrl = url;
       } catch {
         // The placement still works on a blank background.
       }
     })();
     return () => {
+      closed = true;
       // A processing run still encoding its PNG sees itself superseded and revokes its own URL.
       procSeq++;
       for (const u of [sourceUrl, processedUrl, bgUrl]) if (u) URL.revokeObjectURL(u);

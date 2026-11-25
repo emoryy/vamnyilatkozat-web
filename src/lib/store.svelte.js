@@ -1,4 +1,4 @@
-import { get, set, keys, delMany } from 'idb-keyval';
+import { get, getMany, set, setMany, keys, delMany } from 'idb-keyval';
 
 import { BUILTIN_SHOPS, BUILTIN_TERMS, BUILTIN_DOCS } from './catalog.js';
 
@@ -46,35 +46,87 @@ function defaults() {
   };
 }
 
-/** Fills in fields missing from stored or imported data and repairs the current shipment. */
+const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+const text = (v, fallback = '') => (typeof v === 'string' ? v : typeof v === 'number' && Number.isFinite(v) ? String(v) : fallback);
+const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+// Number inputs hold a number, or '' while empty.
+const amount = (v, fallback = '') => (finite(v) ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : fallback);
+const list = (v, keep) => (Array.isArray(v) ? v.filter(keep) : []);
+
+function normalizePerson(p) {
+  const src = isObject(p) ? p : {};
+  return Object.fromEntries(Object.keys(emptyPerson()).map((k) => [k, text(src[k])]));
+}
+
+function normalizeItem(it) {
+  return {
+    id: text(it.id) || uid(),
+    term: text(it.term),
+    qty: amount(it.qty, 1),
+    unitPrice: amount(it.unitPrice),
+    mpid: text(it.mpid),
+    nspid: text(it.nspid),
+    spid: text(it.spid),
+  };
+}
+
+function normalizeShipment(sh) {
+  const items = list(sh.items, isObject).map(normalizeItem);
+  return {
+    id: text(sh.id) || uid(),
+    trackingNum: text(sh.trackingNum),
+    shopId: text(sh.shopId),
+    currency: text(sh.currency) || 'JPY',
+    date: /^\d{4}-\d{2}-\d{2}$/.test(sh.date) ? sh.date : '',
+    shippingCost: amount(sh.shippingCost),
+    items: items.length ? items : [emptyItem()],
+    docs: list(sh.docs, (d) => typeof d === 'string'),
+    signatureId: text(sh.signatureId),
+    createdAt: finite(sh.createdAt) ? sh.createdAt : Date.now(),
+  };
+}
+
+function normalizeShop(shop) {
+  const out = { id: text(shop.id) || uid() };
+  for (const k of ['label', 'name', 'country', 'zip', 'city', 'address']) out[k] = text(shop[k]);
+  return out;
+}
+
+/** A signature is only usable with its image size and placement; anything else is dropped. */
+function normalizeSignature(sig) {
+  const p = sig.placement;
+  if (typeof sig.id !== 'string' || !(sig.width > 0) || !(sig.height > 0)) return null;
+  if (!isObject(p) || !finite(p.x) || !finite(p.y) || !(p.width > 0)) return null;
+  return {
+    ...sig,
+    name: text(sig.name) || 'Aláírás',
+    placement: { x: p.x, y: p.y, width: p.width },
+    params: isObject(sig.params) ? sig.params : {},
+  };
+}
+
+/** Rebuilds stored or imported data field by field, so damaged values cannot reach the UI. */
 function normalizeData(stored) {
-  if (!stored || typeof stored !== 'object') throw new Error('Az adatok formátuma hibás.');
+  if (!isObject(stored)) throw new Error('Az adatok formátuma hibás.');
   const base = defaults();
-  const person = (p, fallback) => {
-    const out = { ...fallback, ...(p && typeof p === 'object' ? p : {}) };
-    for (const k of Object.keys(emptyPerson())) if (typeof out[k] !== 'string') out[k] = '';
-    return out;
-  };
+  const profile = isObject(stored.profile) ? stored.profile : {};
+  const settings = isObject(stored.settings) ? stored.settings : {};
   const data = {
-    ...base,
-    ...stored,
     profile: {
-      ...person(stored.profile, base.profile),
-      parcel: person(stored.profile?.parcel, base.profile.parcel),
+      ...normalizePerson(profile),
+      parcelDiffers: profile.parcelDiffers === true,
+      parcel: normalizePerson(profile.parcel),
     },
-    settings: { ...base.settings, ...(stored.settings || {}) },
+    shops: list(stored.shops, isObject).map(normalizeShop),
+    terms: list(stored.terms, (v) => typeof v === 'string'),
+    docs: list(stored.docs, (v) => typeof v === 'string'),
+    signatures: list(stored.signatures, isObject).map(normalizeSignature).filter(Boolean),
+    shipments: list(stored.shipments, isObject).map(normalizeShipment),
+    currentShipmentId: text(stored.currentShipmentId),
+    settings: { rasterize: typeof settings.rasterize === 'boolean' ? settings.rasterize : base.settings.rasterize },
   };
-  // The UI iterates these unguarded, so a damaged value must not get past here.
-  for (const k of ['shops', 'terms', 'docs', 'signatures', 'shipments']) {
-    if (!Array.isArray(data[k])) data[k] = base[k];
-  }
-  data.shipments = data.shipments.map((s) => ({
-    ...s,
-    items: Array.isArray(s.items) ? s.items : [],
-    docs: Array.isArray(s.docs) ? s.docs : [],
-  }));
   if (!data.shipments.length) data.shipments = base.shipments;
-  if (!data.shipments.some((s) => s.id === data.currentShipmentId)) {
+  if (!data.shipments.some((sh) => sh.id === data.currentShipmentId)) {
     data.currentShipmentId = data.shipments[0].id;
   }
   return data;
@@ -136,18 +188,23 @@ function startAutosave() {
 
 export async function init() {
   let loaded = false;
+  let parsing = false;
   try {
     const stored = await get(DATA_KEY);
+    parsing = true;
     if (stored) app.data = normalizeData(stored);
+    parsing = false;
     loaded = true;
-    for (const s of app.data.signatures) {
-      const png = await get(sigKey(s.id, 'png'));
-      if (png) setSigUrl(s.id, png);
-    }
+    const pngs = await getMany(app.data.signatures.map((s) => sigKey(s.id, 'png')));
+    app.data.signatures.forEach((s, i) => {
+      if (pngs[i]) setSigUrl(s.id, pngs[i]);
+    });
     lastSaved = snapshot();
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   } catch (err) {
-    app.error = `A böngésző tárhelye nem érhető el (${err.message || err}). Privát ablakban vagy letiltott tárhellyel az adatok nem maradnak meg.`;
+    app.error = parsing
+      ? `A tárolt adatok sérültek (${err.message || err}). Amíg nem töltesz vissza egy mentést, vagy nem törlöd az adatokat, semmi nem mentődik.`
+      : `A böngésző tárhelye nem érhető el (${err.message || err}). Privát ablakban vagy letiltott tárhellyel az adatok nem maradnak meg.`;
   }
   app.ready = true;
   if (loaded) startAutosave();
@@ -206,6 +263,7 @@ export function currentShipment() {
 // ---- signatures (images live in their own IndexedDB keys)
 
 export async function saveSignature(meta, { png, source }) {
+  if (!canSave) throw new Error('a tárolt adatok nem töltődtek be, ezért most semmi nem menthető');
   await set(sigKey(meta.id, 'png'), png);
   if (source) await set(sigKey(meta.id, 'src'), source);
   setSigUrl(meta.id, png);
@@ -227,6 +285,8 @@ export async function deleteSignature(id) {
   app.data.signatures = app.data.signatures.filter((s) => s.id !== id);
   for (const s of app.data.shipments) if (s.signatureId === id) s.signatureId = '';
   setSigUrl(id, null);
+  // Without saving, the stored data still refers to the images, so they stay.
+  if (!canSave) return;
   await delMany([sigKey(id, 'png'), sigKey(id, 'src')]);
   await persistNow();
 }
@@ -295,33 +355,32 @@ export async function importBackup(file) {
   } catch {
     throw new Error('A mentésben lévő aláíráskép sérült.');
   }
-  // Write the new data first and drop the old keys only afterwards, so a failed write
-  // (e.g. the storage quota) leaves the current data in place.
+  // The new images and data go in one transaction, so a failed write (e.g. the storage
+  // quota) changes nothing, not even images whose ids the current data shares; the old
+  // keys are dropped only afterwards.
   // Saving is paused meanwhile, so an autosave of the old data cannot land after the new one.
   const couldSave = canSave;
   canSave = false;
-  const written = new Set([DATA_KEY]);
   const json = JSON.stringify(data);
+  const entries = [];
+  for (const { id, png, src } of images) {
+    if (png) entries.push([sigKey(id, 'png'), png]);
+    if (src) entries.push([sigKey(id, 'src'), src]);
+  }
+  entries.push([DATA_KEY, JSON.parse(json)]);
   try {
-    for (const { id, png, src } of images) {
-      if (png) {
-        await set(sigKey(id, 'png'), png);
-        written.add(sigKey(id, 'png'));
-      }
-      if (src) {
-        await set(sigKey(id, 'src'), src);
-        written.add(sigKey(id, 'src'));
-      }
-    }
-    await set(DATA_KEY, JSON.parse(json));
+    await setMany(entries);
   } catch (err) {
     canSave = couldSave;
+    // An edit made while the import ran was not saved; save it now.
+    persistNow();
     throw new Error(`A mentés nem tölthető vissza: ${err.message || err}`);
   }
   // The new data is stored by now; old keys left behind by a failed cleanup are only unused.
-  await wipeAll(written).catch(() => {});
+  await wipeAll(new Set(entries.map(([k]) => k))).catch(() => {});
   for (const { id, png } of images) if (png) setSigUrl(id, png);
   app.data = data;
+  app.error = '';
   lastSaved = json;
   startAutosave();
 }
@@ -337,6 +396,7 @@ async function wipeAll(keep = new Set()) {
 export async function resetAll() {
   await wipeAll();
   app.data = defaults();
+  app.error = '';
   startAutosave();
   await persistNow();
 }
