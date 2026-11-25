@@ -11,6 +11,7 @@
   import ConfirmButton from '../components/ConfirmButton.svelte';
   import Icon from '../components/Icon.svelte';
   import ShopForm from '../components/ShopForm.svelte';
+  import { toast } from '../lib/toast.svelte.js';
 
   let { onnavigate } = $props();
 
@@ -59,8 +60,10 @@
     return finishShop;
   });
 
+  // A shipment without a tracking number yet is named by the day it was created.
   function shipmentLabel(x) {
-    const parts = [x.trackingNum?.trim() || 'Követési szám nélkül'];
+    const created = new Date(x.createdAt).toLocaleDateString('hu-HU');
+    const parts = [x.trackingNum?.trim() || `Új küldemény (${created})`];
     const sh = findShop(x.shopId);
     if (sh) parts.push(shopLabel(sh));
     return parts.join(' · ');
@@ -68,7 +71,20 @@
 
   let sortedShipments = $derived([...app.data.shipments].sort((a, b) => b.createdAt - a.createdAt));
 
+  // Nothing entered yet: an untouched shipment.
+  function isUntouched(x) {
+    return !x.trackingNum?.trim() && !x.shopId && !x.docs.length
+      && (x.shippingCost === '' || x.shippingCost === null) && !x.items.some(isFilledItem);
+  }
+
+  let untouched = $derived(isUntouched(s));
+
   function addShipment() {
+    // A second empty shipment would only leave the user unsure which one to fill in.
+    if (untouched) {
+      toast('Ez a küldemény még üres: töltsd ki ezt, újat csak egy másik csomaghoz kell felvenni.');
+      return;
+    }
     const n = newShipment(s);
     app.data.shipments = [...app.data.shipments, n];
     app.data.currentShipmentId = n.id;
@@ -147,13 +163,21 @@
     </div>
     {#if app.data.shipments.length > 1}
       <label class="field">
-        <span>Szerkesztett küldemény ({app.data.shipments.length} mentett)</span>
+        <span>Szerkesztett küldemény ({app.data.shipments.length} mentett közül)</span>
         <select bind:value={app.data.currentShipmentId}>
           {#each sortedShipments as x (x.id)}
             <option value={x.id}>{shipmentLabel(x)}</option>
           {/each}
         </select>
       </label>
+    {:else}
+      <div class="field">
+        <span>Szerkesztett küldemény</span>
+        <strong class="current">{shipmentLabel(s)}</strong>
+      </div>
+    {/if}
+    {#if untouched}
+      <p class="hint start">Itt kezdheted: töltsd ki lent az adatokat, az előnézet közben frissül. Új küldeményt akkor vegyél fel, ha egy másik csomaghoz is nyilatkozat kell.</p>
     {/if}
   </div>
 
@@ -339,6 +363,13 @@
   }
   .picker .field {
     margin-top: 12px;
+  }
+  .current {
+    font-family: var(--f-display);
+    font-size: 16px;
+  }
+  .picker .start {
+    margin: 0;
   }
   .shop-pick {
     display: grid;

@@ -21,7 +21,7 @@ export function newShipment(prev) {
   return {
     id: uid(),
     trackingNum: '',
-    shopId: prev?.shopId || '',
+    shopId: '',
     currency: prev?.currency || 'JPY',
     date: '',
     shippingCost: '',
