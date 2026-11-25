@@ -197,13 +197,6 @@ function dilate(mask, W, H) {
   return out;
 }
 
-/**
- * Cuts the ink out of a photo or scan of one signature: paper becomes transparent,
- * stray specks are dropped, and the result is trimmed to the ink.
- * options: crop {x, y, w, h} in source px (null = whole image),
- *          sensitivity 0..1 (higher keeps fainter strokes), color 'auto' | 'blue' | 'black'.
- * Returns a canvas, or null if no ink was found.
- */
 // The background estimate depends only on the source and the crop, so sensitivity and
 // colour changes reuse it. Weakly keyed: it goes away with the source canvas.
 const darknessCache = new WeakMap();
@@ -229,23 +222,30 @@ function darknessMap(source, c) {
   const dark = new Float32Array(N);
   for (let i = 0; i < N; i++) dark[i] = Math.max(0, Math.min(1, 1 - lum[i] / bg[i]));
 
-  const entry = { key, W, H, rgba, dark };
+  const entry = { key, W, H, rgba, dark, otsu: otsu(dark) };
   darknessCache.set(source, entry);
   return entry;
 }
 
+/**
+ * Cuts the ink out of a photo or scan of one signature: paper becomes transparent,
+ * stray specks are dropped, and the result is trimmed to the ink.
+ * options: crop {x, y, w, h} in source px (null = whole image),
+ *          sensitivity 0..1 (higher keeps fainter strokes), color 'auto' | 'blue' | 'black'.
+ * Returns a canvas, or null if no ink was found.
+ */
 export function processSignature(source, { crop = null, sensitivity = 0.5, color = 'auto' } = {}) {
   const c = crop && crop.w > 4 && crop.h > 4 ? crop : { x: 0, y: 0, w: source.width, h: source.height };
-  const { W, H, rgba, dark } = darknessMap(source, c);
+  const { W, H, rgba, dark, otsu: otsuLevel } = darknessMap(source, c);
   const work = makeCanvas(W, H);
   const wctx = work.getContext('2d');
-  // A copy, because the pixels are rewritten below and the cached ones must stay intact.
-  const img = new ImageData(new Uint8ClampedArray(rgba), W, H);
+  // Every output pixel is written below; the source colours are read from the cached `rgba`.
+  const img = wctx.createImageData(W, H);
   const d = img.data;
   const N = W * H;
 
   const k = 1.6 - Math.max(0, Math.min(1, sensitivity));
-  const thr = Math.max(0.08, otsu(dark) * k);
+  const thr = Math.max(0.08, otsuLevel * k);
   const lo = thr * 0.75;
   const span = thr * 0.5;
   const alpha = new Float32Array(N);
@@ -276,9 +276,9 @@ export function processSignature(source, { crop = null, sensitivity = 0.5, color
     let n = 0;
     for (let i = 0; i < N; i++) {
       if (kept[i] && alpha[i] >= 0.99) {
-        r += d[i * 4];
-        g += d[i * 4 + 1];
-        b += d[i * 4 + 2];
+        r += rgba[i * 4];
+        g += rgba[i * 4 + 1];
+        b += rgba[i * 4 + 2];
         n++;
       }
     }

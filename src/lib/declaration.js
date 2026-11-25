@@ -118,9 +118,14 @@ function clean(value) {
   return value === undefined || value === null ? '' : String(value).trim();
 }
 
+/** Whether an item row has anything to print; completely blank rows are skipped. */
+export function isFilledItem(it) {
+  return Boolean(clean(it.term) || Number(it.unitPrice) || clean(it.mpid) || clean(it.nspid) || clean(it.spid));
+}
+
 export function itemRows(items) {
   return (items || [])
-    .filter((it) => clean(it.term) || Number(it.unitPrice) || clean(it.mpid) || clean(it.nspid) || clean(it.spid))
+    .filter(isFilledItem)
     .map((it) => {
       const qty = Number(it.qty) > 0 ? Number(it.qty) : 1;
       const unit = Number(it.unitPrice) || 0;

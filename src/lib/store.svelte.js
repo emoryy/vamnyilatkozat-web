@@ -48,18 +48,32 @@ function defaults() {
 
 /** Fills in fields missing from stored or imported data and repairs the current shipment. */
 function normalizeData(stored) {
+  if (!stored || typeof stored !== 'object') throw new Error('Az adatok formátuma hibás.');
   const base = defaults();
+  const person = (p, fallback) => {
+    const out = { ...fallback, ...(p && typeof p === 'object' ? p : {}) };
+    for (const k of Object.keys(emptyPerson())) if (typeof out[k] !== 'string') out[k] = '';
+    return out;
+  };
   const data = {
     ...base,
     ...stored,
     profile: {
-      ...base.profile,
-      ...(stored.profile || {}),
-      parcel: { ...base.profile.parcel, ...(stored.profile?.parcel || {}) },
+      ...person(stored.profile, base.profile),
+      parcel: person(stored.profile?.parcel, base.profile.parcel),
     },
     settings: { ...base.settings, ...(stored.settings || {}) },
   };
-  if (!data.shipments?.length) data.shipments = base.shipments;
+  // The UI iterates these unguarded, so a damaged value must not get past here.
+  for (const k of ['shops', 'terms', 'docs', 'signatures', 'shipments']) {
+    if (!Array.isArray(data[k])) data[k] = base[k];
+  }
+  data.shipments = data.shipments.map((s) => ({
+    ...s,
+    items: Array.isArray(s.items) ? s.items : [],
+    docs: Array.isArray(s.docs) ? s.docs : [],
+  }));
+  if (!data.shipments.length) data.shipments = base.shipments;
   if (!data.shipments.some((s) => s.id === data.currentShipmentId)) {
     data.currentShipmentId = data.shipments[0].id;
   }
@@ -79,6 +93,10 @@ function setSigUrl(id, blob) {
 
 let saveTimer = null;
 let lastSaved = '';
+// Until the stored data was read (or replaced on purpose), any save would overwrite it with defaults.
+let canSave = false;
+let autosaving = false;
+const SAVE_ERROR = 'A mentés nem sikerült';
 
 function snapshot() {
   return JSON.stringify(app.data);
@@ -86,18 +104,37 @@ function snapshot() {
 
 export function persistNow() {
   clearTimeout(saveTimer);
+  if (!canSave) return Promise.resolve();
   const json = snapshot();
   if (json === lastSaved) return Promise.resolve();
   lastSaved = json;
-  return set(DATA_KEY, JSON.parse(json)).catch((err) => {
-    // Forget the failed snapshot so the next change or pagehide tries again.
-    if (lastSaved === json) lastSaved = '';
-    app.error = `A mentés nem sikerült: ${err.message || err}`;
+  return set(DATA_KEY, JSON.parse(json)).then(
+    () => {
+      if (app.error.startsWith(SAVE_ERROR)) app.error = '';
+    },
+    (err) => {
+      // Forget the failed snapshot so the next change or pagehide tries again.
+      if (lastSaved === json) lastSaved = '';
+      app.error = `${SAVE_ERROR}: ${err.message || err}`;
+    },
+  );
+}
+
+function startAutosave() {
+  canSave = true;
+  if (autosaving) return;
+  autosaving = true;
+  $effect.root(() => {
+    $effect(() => {
+      snapshot();
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(persistNow, 300);
+    });
   });
+  window.addEventListener('pagehide', () => persistNow());
 }
 
 export async function init() {
-  // Without a successful read, autosaving would overwrite the stored data with defaults.
   let loaded = false;
   try {
     const stored = await get(DATA_KEY);
@@ -113,16 +150,7 @@ export async function init() {
     app.error = `A böngésző tárhelye nem érhető el (${err.message || err}). Privát ablakban vagy letiltott tárhellyel az adatok nem maradnak meg.`;
   }
   app.ready = true;
-  if (!loaded) return;
-
-  $effect.root(() => {
-    $effect(() => {
-      snapshot();
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(persistNow, 300);
-    });
-  });
-  window.addEventListener('pagehide', () => persistNow());
+  if (loaded) startAutosave();
 }
 
 // ---- lookups
@@ -267,21 +295,41 @@ export async function importBackup(file) {
   } catch {
     throw new Error('A mentésben lévő aláíráskép sérült.');
   }
-  await wipeAll();
-  for (const { id, png, src } of images) {
-    if (png) {
-      await set(sigKey(id, 'png'), png);
-      setSigUrl(id, png);
+  // Write the new data first and drop the old keys only afterwards, so a failed write
+  // (e.g. the storage quota) leaves the current data in place.
+  // Saving is paused meanwhile, so an autosave of the old data cannot land after the new one.
+  const couldSave = canSave;
+  canSave = false;
+  const written = new Set([DATA_KEY]);
+  const json = JSON.stringify(data);
+  try {
+    for (const { id, png, src } of images) {
+      if (png) {
+        await set(sigKey(id, 'png'), png);
+        written.add(sigKey(id, 'png'));
+      }
+      if (src) {
+        await set(sigKey(id, 'src'), src);
+        written.add(sigKey(id, 'src'));
+      }
     }
-    if (src) await set(sigKey(id, 'src'), src);
+    await set(DATA_KEY, JSON.parse(json));
+  } catch (err) {
+    canSave = couldSave;
+    throw new Error(`A mentés nem tölthető vissza: ${err.message || err}`);
   }
+  // The new data is stored by now; old keys left behind by a failed cleanup are only unused.
+  await wipeAll(written).catch(() => {});
+  for (const { id, png } of images) if (png) setSigUrl(id, png);
   app.data = data;
-  await persistNow();
+  lastSaved = json;
+  startAutosave();
 }
 
-async function wipeAll() {
+async function wipeAll(keep = new Set()) {
+  clearTimeout(saveTimer);
   const all = await keys();
-  await delMany(all.filter((k) => typeof k === 'string' && (k.startsWith('sig:') || k === DATA_KEY)));
+  await delMany(all.filter((k) => typeof k === 'string' && (k.startsWith('sig:') || k === DATA_KEY) && !keep.has(k)));
   for (const id of Object.keys(sigUrls)) setSigUrl(id, null);
   lastSaved = '';
 }
@@ -289,6 +337,7 @@ async function wipeAll() {
 export async function resetAll() {
   await wipeAll();
   app.data = defaults();
+  startAutosave();
   await persistNow();
 }
 

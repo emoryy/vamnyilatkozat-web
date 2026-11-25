@@ -4,7 +4,7 @@
     termOptions, docOptions, remember, uid,
   } from '../lib/store.svelte.js';
   import { CURRENCIES } from '../lib/catalog.js';
-  import { formatMoney, itemRows } from '../lib/declaration.js';
+  import { formatMoney, itemRows, isFilledItem } from '../lib/declaration.js';
   import { todayIso } from '../lib/input.js';
   import { MAX_ROWS } from '../lib/field-map.js';
   import Combobox from '../components/Combobox.svelte';
@@ -94,6 +94,11 @@
   let itemsTotal = $derived(s.items.reduce((sum, it) => sum + lineTotal(it), 0));
   // Blank rows are left off the form, so only filled ones count towards the continuation sheet.
   let filledCount = $derived(itemRows(s.items).length);
+  // The number each row gets on the form; blank rows are not printed and get none.
+  let printedNumbers = $derived.by(() => {
+    let n = 0;
+    return s.items.map((it) => (isFilledItem(it) ? ++n : null));
+  });
 </script>
 
 <div class="stack">
@@ -167,14 +172,14 @@
   <section class="card">
     <div class="items-head">
       <h2 class="section-title"><b class="num">(5)-(11)</b> Tételek</h2>
-      <span class="hint">{s.items.length} tétel{#if filledCount > MAX_ROWS}, ebből {filledCount - MAX_ROWS} pótlapra kerül{/if}</span>
+      <span class="hint">{filledCount} tétel{#if filledCount > MAX_ROWS}, ebből {filledCount - MAX_ROWS} pótlapra kerül{/if}</span>
     </div>
 
     <ol class="items">
       {#each s.items as it, i (it.id)}
         <li class="item">
           <div class="item-top">
-            <span class="idx mono">{i + 1}.</span>
+            <span class="idx mono" title={printedNumbers[i] ? undefined : 'Üres sor, nem kerül a nyomtatványra'}>{printedNumbers[i] ? `${printedNumbers[i]}.` : '·'}</span>
             <div class="field grow">
               <span class="sr-only">Megnevezés</span>
               <Combobox bind:value={it.term} options={terms} label="Megnevezés" placeholder="Megnevezés, pl. Műanyag gyűjtői figura (dísztárgy)" oncommit={(v) => remember('terms', v)} />

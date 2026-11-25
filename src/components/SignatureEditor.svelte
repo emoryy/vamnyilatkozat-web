@@ -54,6 +54,8 @@
       }
     })();
     return () => {
+      // A processing run still encoding its PNG sees itself superseded and revokes its own URL.
+      procSeq++;
       for (const u of [sourceUrl, processedUrl, bgUrl]) if (u) URL.revokeObjectURL(u);
     };
   });
