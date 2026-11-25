@@ -185,6 +185,10 @@ function setSigUrl(id, blob) {
   else delete sigUrls[id];
 }
 
+function clearSigUrls() {
+  for (const id of Object.keys(sigUrls)) setSigUrl(id, null);
+}
+
 // All storage access goes through one queue. Every task runs alone, so an autosave, a
 // signature save or delete, an import or a reset can never interleave with another one.
 let queue = Promise.resolve();
@@ -213,6 +217,9 @@ const isOwnKey = (k) => typeof k === 'string' && (k === DATA_KEY || k.startsWith
  * With `keepOnly`, every other key of the app is deleted too (import and reset).
  */
 function commit(puts, { del = [], keepOnly = null } = {}) {
+  // Every write goes through here, so a tab whose data another tab took over writes
+  // nothing, whichever action asks for it.
+  if (app.lock === 'lost') return Promise.reject(new Error('az alkalmazás egy másik lapon fut, ez a lap nem ment'));
   return db('readwrite', (store) => {
     const tx = store.transaction;
     try {
@@ -277,6 +284,8 @@ function persistNow() {
 }
 
 function startAutosave() {
+  // A load, import or reset that finishes after another tab took over must not resume saving.
+  if (app.lock === 'lost') return;
   loaded = true;
   app.autosave = true;
   if (autosaving) return;
@@ -305,25 +314,55 @@ const LOCK = 'vamnyilatkozat-app';
 
 export function init() {
   if (!navigator.locks) {
-    // Without the Web Locks API the guard is skipped rather than blocking the app.
-    app.lock = 'active';
-    load();
+    unguarded();
     return;
   }
   navigator.locks
     .request(LOCK, { ifAvailable: true }, (lock) => {
       if (!lock) {
         app.lock = 'elsewhere';
+        waitForLock();
         return undefined;
       }
       return holdLock();
     })
-    .catch(lockLost);
+    // Only a steal ends a held lock with AbortError. A request the browser refuses
+    // (e.g. SecurityError in a sandboxed frame) must not leave the data unloaded.
+    .catch((err) => (err?.name === 'AbortError' ? lockLost() : unguarded()));
+}
+
+// Without a usable Web Locks API the guard is skipped rather than blocking the app.
+function unguarded() {
+  app.lock = 'active';
+  load();
 }
 
 /** Moves the app to this tab; the tab that had it stops writing. */
 export function takeOver() {
+  stopWaiting();
   navigator.locks.request(LOCK, { steal: true }, () => holdLock()).catch(lockLost);
+}
+
+// A tab without the lock waits in line, so it takes over by itself (with the latest
+// stored data) once the tab that has the app is closed.
+let waiting = null;
+
+function waitForLock() {
+  stopWaiting();
+  const controller = new AbortController();
+  waiting = controller;
+  navigator.locks
+    .request(LOCK, { signal: controller.signal }, () => holdLock())
+    .catch((err) => {
+      // Our own cancellation (on a manual take-over) is not a lost lock.
+      if (controller.signal.aborted) return;
+      if (err?.name === 'AbortError') lockLost();
+    });
+}
+
+function stopWaiting() {
+  waiting?.abort();
+  waiting = null;
 }
 
 // The lock is held for the life of the tab, until another tab steals it.
@@ -339,6 +378,7 @@ function lockLost() {
   app.autosave = false;
   clearTimeout(saveTimer);
   app.lock = 'lost';
+  waitForLock();
 }
 
 function load() {
@@ -346,7 +386,7 @@ function load() {
     let ok = false;
     let phase = 'read';
     app.error = '';
-    for (const id of Object.keys(sigUrls)) setSigUrl(id, null);
+    clearSigUrls();
     try {
       const stored = await get(DATA_KEY, db);
       phase = 'parse';
@@ -591,7 +631,7 @@ export async function importBackup(file) {
       throw new Error(`Az importálás nem sikerült: ${err.message || err}`);
     }
     clearTimeout(saveTimer);
-    for (const id of Object.keys(sigUrls)) setSigUrl(id, null);
+    clearSigUrls();
     for (const { id, png } of images) if (png) setSigUrl(id, png);
     app.data = data;
     app.error = '';
@@ -607,7 +647,7 @@ export function resetAll() {
     const json = JSON.stringify(data);
     await commit([[DATA_KEY, JSON.parse(json)]], { keepOnly: new Set([DATA_KEY]) });
     clearTimeout(saveTimer);
-    for (const id of Object.keys(sigUrls)) setSigUrl(id, null);
+    clearSigUrls();
     app.data = data;
     app.error = '';
     lastSaved = json;

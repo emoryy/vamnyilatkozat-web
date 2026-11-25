@@ -86,11 +86,16 @@
     const turned = rotateCanvas(orig, deg);
     source = turned;
     let stale = false;
-    canvasToBlob(turned, 'image/jpeg', 0.9).then((blob) => {
-      if (stale || closed) return;
-      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-      sourceUrl = URL.createObjectURL(blob);
-    });
+    canvasToBlob(turned, 'image/jpeg', 0.9)
+      .then((blob) => {
+        if (stale || closed) return;
+        if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+        sourceUrl = URL.createObjectURL(blob);
+      })
+      .catch((err) => {
+        // Without this the crop area would show "Kép betöltése…" for good.
+        if (!stale && !closed) loadError = err.message || String(err);
+      });
     return () => {
       stale = true;
     };
@@ -98,6 +103,9 @@
 
   // A crop and a placement made for the old orientation no longer fit.
   function rotate(quarter) {
+    // The old-orientation image would map crop drags with the new size until the turned one is ready.
+    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+    sourceUrl = '';
     rotation = (rotation + quarter + 360) % 360;
     crop = null;
     placement = null;

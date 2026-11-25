@@ -41,6 +41,18 @@
   let needsSignature = $derived(app.ready && !app.data.signatures.length);
   // Only a failed load or a failed write stops saving; e.g. an unreadable signature image does not.
   let saving = $derived(app.autosave && !app.error.startsWith(SAVE_ERROR));
+
+  // A modal dialog, opened after any other one, sits on top of it in the top layer and
+  // makes the rest of the page inert, so nothing behind it can be used or focused.
+  let lockDialog = $state();
+  $effect(() => {
+    if (lockDialog && !lockDialog.open) lockDialog.showModal();
+  });
+
+  function keepLockDialogOpen(e) {
+    // A repeated Escape may close the dialog despite a cancelled `cancel` event.
+    if (e.currentTarget.isConnected) e.currentTarget.showModal();
+  }
 </script>
 
 <div class="shell">
@@ -122,20 +134,24 @@
 </div>
 
 {#if app.lock === 'elsewhere' || app.lock === 'lost'}
-  <div class="lock-veil" role="dialog" aria-modal="true" aria-labelledby="lock-title">
-    <div class="lock-card">
-      <h2 id="lock-title">{app.lock === 'lost' ? 'Ez a lap szünetel' : 'Az alkalmazás egy másik lapon már nyitva van'}</h2>
-      <p>
-        {#if app.lock === 'lost'}
-          Az alkalmazást egy másik lapon kezdted használni, ezért ez a lap nem ment többé, hogy ne írja felül a másik lap adatait.
-        {:else}
-          Hogy a két lap ne írja felül egymás adatait, egyszerre csak egy lapon használható.
-        {/if}
-      </p>
-      <p class="sub">Ha itt folytatod, a másik lap szünetel, és ez a lap a legutóbb mentett adatokkal indul.</p>
-      <button type="button" class="btn primary" onclick={takeOver}>Használom ezen a lapon</button>
-    </div>
-  </div>
+  <dialog
+    class="lock-dialog"
+    bind:this={lockDialog}
+    aria-labelledby="lock-title"
+    oncancel={(e) => e.preventDefault()}
+    onclose={keepLockDialogOpen}
+  >
+    <h2 id="lock-title">{app.lock === 'lost' ? 'Ez a lap szünetel' : 'Az alkalmazás egy másik lapon már nyitva van'}</h2>
+    <p>
+      {#if app.lock === 'lost'}
+        Az alkalmazást egy másik lapon kezdted használni, ezért ez a lap nem ment többé, hogy ne írja felül a másik lap adatait.
+      {:else}
+        Hogy a két lap ne írja felül egymás adatait, egyszerre csak egy lapon használható.
+      {/if}
+    </p>
+    <p class="sub">Ha itt folytatod, a másik lap szünetel, és ez a lap a legutóbb mentett adatokkal indul.</p>
+    <button type="button" class="btn primary" onclick={takeOver}>Használom ezen a lapon</button>
+  </dialog>
 {/if}
 
 <Toasts />
@@ -266,17 +282,9 @@
     overflow: auto;
     padding: 16px 16px 24px;
   }
-  .lock-veil {
-    position: fixed;
-    inset: 0;
-    z-index: 90;
-    display: grid;
-    place-items: center;
-    padding: 16px;
-    background: rgba(20, 24, 32, 0.6);
-  }
-  .lock-card {
-    max-width: 480px;
+  .lock-dialog {
+    width: min(480px, calc(100vw - 32px));
+    color: var(--ink);
     background: var(--paper);
     border: 1px solid var(--line-strong);
     border-top: 4px solid var(--red);
@@ -284,16 +292,19 @@
     padding: 20px 22px;
     box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.55);
   }
-  .lock-card h2 {
+  .lock-dialog::backdrop {
+    background: rgba(20, 24, 32, 0.6);
+  }
+  .lock-dialog h2 {
     font-size: 20px;
     font-weight: 800;
     margin-bottom: 8px;
   }
-  .lock-card p {
+  .lock-dialog p {
     margin: 0 0 10px;
     font-size: 15px;
   }
-  .lock-card .sub {
+  .lock-dialog .sub {
     font-size: 14px;
     color: var(--ink-2);
     margin-bottom: 16px;

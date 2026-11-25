@@ -75,7 +75,7 @@
   }
 
   function duplicateShipment() {
-    const copy = JSON.parse(JSON.stringify($state.snapshot(s)));
+    const copy = $state.snapshot(s);
     copy.id = uid();
     copy.trackingNum = '';
     copy.createdAt = Date.now();
