@@ -76,5 +76,7 @@ export function missingParts(spec) {
 
 export function fileNameFor(spec) {
   const base = (spec.trackingNum || '').trim().replace(/[^\p{L}\p{N}._-]+/gu, '_');
-  return base ? `Nyilatkozat ${base}.pdf` : 'Vámnyilatkozat.pdf';
+  // The official form's own file name, followed by the tracking number.
+  const form = 'Nyilatkozat_automatikus_postai_vamkezelesu_kuldemenyhez_WEB';
+  return base ? `${form}_${base}.pdf` : `${form}.pdf`;
 }
