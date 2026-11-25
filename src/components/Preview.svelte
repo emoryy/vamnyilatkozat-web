@@ -7,6 +7,8 @@
   import { downloadBlob } from '../lib/download.js';
   import Icon from './Icon.svelte';
 
+  let { onnavigate } = $props();
+
   const RASTER_DPI = 300;
   const MIN_RASTER_DPI = 200;
 
@@ -142,7 +144,7 @@
       <input type="checkbox" bind:checked={app.data.settings.rasterize} />
       Képként (laposítva)
     </label>
-    <button type="button" class="btn primary" onclick={download} disabled={downloading || !spec}>
+    <button type="button" class="btn post" onclick={download} disabled={downloading || !spec}>
       <Icon name="download" />
       {downloading ? 'Készül…' : 'PDF letöltése'}
     </button>
@@ -150,10 +152,14 @@
 </div>
 
 {#if missing.length}
-  <p class="missing">
+  <div class="missing" role="status">
     <strong>Hiányzik még:</strong>
-    {missing.join(', ')}
-  </p>
+    <ul>
+      {#each missing as m (m.label)}
+        <li><button type="button" onclick={() => onnavigate(m.tab)} title="Ugrás a kitöltéshez">{m.label}</button></li>
+      {/each}
+    </ul>
+  </div>
 {/if}
 {#if error}
   <p class="missing err">Hiba az előnézetben: {error}</p>
@@ -239,12 +245,40 @@
     color: var(--desk-ink);
     font-size: 14px;
   }
+  .flat input {
+    accent-color: var(--post-light);
+  }
   .missing {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
     margin: 0;
-    padding: 8px 20px;
+    padding: 9px 20px;
     font-size: 14px;
     background: #4a3a1f;
     color: #ffe7b8;
+  }
+  .missing ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .missing li button {
+    border: 1px solid #c9a35c;
+    background: #5e4a27;
+    color: #fff3d9;
+    border-radius: 99px;
+    padding: 2px 11px;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .missing li button:hover {
+    background: #75602f;
   }
   .missing.err {
     background: #5a2420;

@@ -64,12 +64,13 @@ export async function resolveInput(spec) {
 export function missingParts(spec) {
   const out = [];
   if (!spec) return out;
-  if (!spec.trackingNum?.trim()) out.push('követési szám');
-  if (!spec.sender) out.push('feladó');
-  if (!spec.declarant.name?.trim()) out.push('saját név');
-  if (!spec.declarant.address?.trim() || !spec.declarant.city?.trim()) out.push('saját cím');
-  if (!spec.items.some((i) => i.term?.trim())) out.push('tétel megnevezése');
-  if (!spec.signature) out.push('aláírás');
+  // `tab` is the sidebar tab where the missing part is filled in.
+  if (!spec.trackingNum?.trim()) out.push({ label: 'Követési szám', tab: 'shipment' });
+  if (!spec.sender?.name?.trim()) out.push({ label: 'Feladó', tab: 'shipment' });
+  if (!spec.declarant.name?.trim()) out.push({ label: 'Saját név', tab: 'profile' });
+  if (!spec.declarant.address?.trim() || !spec.declarant.city?.trim()) out.push({ label: 'Saját cím', tab: 'profile' });
+  if (!spec.items.some((i) => i.term?.trim())) out.push({ label: 'Tétel megnevezése', tab: 'shipment' });
+  if (!spec.signature) out.push({ label: 'Aláírás', tab: 'signature' });
   return out;
 }
 

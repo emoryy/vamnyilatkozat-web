@@ -1,18 +1,23 @@
 :root {
-  --paper: #f5f0e6;
-  --paper-2: #ece4d4;
-  --card: #fffdf8;
+  --paper: #f0e9dc;
+  --paper-2: #e5dccb;
+  --card: #f8f3ea;
+  --field: #ffffff;
+  --field-border: #9c8c6e;
   --ink: #18202f;
   --ink-2: #3d4659;
   --ink-3: #5a6275;
   --line: #d4c8b2;
-  --line-strong: #b5a789;
+  --line-strong: #b0a184;
   --red: #b3302a;
   --red-soft: #f6ddd8;
   --blue: #1d3a78;
   --blue-soft: #dfe6f5;
   --green: #1f6a43;
   --green-soft: #dcefe2;
+  --post: #1a7a45;
+  --post-hover: #136035;
+  --post-light: #3db36e;
   --desk: #262a31;
   --desk-2: #31363f;
   --desk-ink: #eef0f4;
@@ -106,8 +111,9 @@ a {
 .field textarea {
   width: 100%;
   min-width: 0;
-  background: var(--card);
-  border: 1px solid var(--line-strong);
+  background: var(--field);
+  border: 1px solid var(--field-border);
+  box-shadow: inset 0 1px 2px rgba(24, 32, 47, 0.07);
   border-radius: var(--radius);
   padding: 7px 10px;
   font-size: 15px;
@@ -135,6 +141,13 @@ a {
   font-size: 13px;
   color: var(--ink-3);
   margin: 0;
+}
+
+/* A hint under a control needs air, or it reads as part of the control. */
+.card > .hint:not(:first-child),
+.field + .hint,
+.grid-2 + .hint {
+  margin-top: 10px;
 }
 
 .grid-2 {
@@ -186,11 +199,12 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--line-strong);
-  background: var(--card);
+  border: 1px solid var(--field-border);
+  background: var(--field);
   color: var(--ink);
   border-radius: var(--radius);
   padding: 7px 12px;
+  box-shadow: 0 1px 0 rgba(24, 32, 47, 0.08);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -221,6 +235,16 @@ a {
   background: #16306a;
 }
 
+.btn.post {
+  background: var(--post);
+  border-color: var(--post);
+  color: #fff;
+}
+
+.btn.post:hover {
+  background: var(--post-hover);
+}
+
 .btn.danger {
   color: var(--red);
   border-color: #d9a39d;
@@ -236,6 +260,7 @@ a {
 .btn.ghost {
   border-color: transparent;
   background: transparent;
+  box-shadow: none;
 }
 
 .btn.ghost:hover {

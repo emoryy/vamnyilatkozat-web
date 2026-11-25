@@ -10,6 +10,7 @@
   import Combobox from '../components/Combobox.svelte';
   import ConfirmButton from '../components/ConfirmButton.svelte';
   import Icon from '../components/Icon.svelte';
+  import ShopForm from '../components/ShopForm.svelte';
 
   let { onnavigate } = $props();
 
@@ -21,6 +22,31 @@
   let terms = $derived(termOptions());
   let docChoices = $derived(docOptions().filter((o) => !s.docs.includes(o.value)));
   let newDoc = $state('');
+  let editingShopId = $state(null);
+
+  const NEW_SHOP = '__new';
+
+  function pickShop(value) {
+    if (value === NEW_SHOP) createShop();
+    else s.shopId = value;
+  }
+
+  // A sender left completely empty was opened by mistake; it is not kept.
+  function finishShop() {
+    const sh = app.data.shops.find((x) => x.id === editingShopId);
+    editingShopId = null;
+    if (sh && !['name', 'zip', 'city', 'address', 'label'].some((k) => sh[k].trim())) {
+      app.data.shops = app.data.shops.filter((x) => x.id !== sh.id);
+      if (s.shopId === sh.id) s.shopId = '';
+    }
+  }
+
+  function createShop() {
+    const shop = { id: uid(), label: '', name: '', country: 'Japán', zip: '', city: '', address: '' };
+    app.data.shops = [shop, ...app.data.shops];
+    s.shopId = shop.id;
+    editingShopId = shop.id;
+  }
 
   function shipmentLabel(x) {
     const parts = [x.trackingNum?.trim() || 'Követési szám nélkül'];
@@ -103,19 +129,21 @@
 
 <div class="stack">
   <div class="picker card">
-    <label class="field">
-      <span>Küldemény</span>
-      <select bind:value={app.data.currentShipmentId}>
-        {#each sortedShipments as x (x.id)}
-          <option value={x.id}>{shipmentLabel(x)}</option>
-        {/each}
-      </select>
-    </label>
     <div class="row">
       <button type="button" class="btn small" onclick={addShipment}><Icon name="plus" size={16} /> Új küldemény</button>
       <button type="button" class="btn small" onclick={duplicateShipment}><Icon name="copy" size={16} /> Másolat</button>
       <ConfirmButton small label="Törlés" confirmLabel="Biztosan törlöd?" onconfirm={deleteShipment} />
     </div>
+    {#if app.data.shipments.length > 1}
+      <label class="field">
+        <span>Szerkesztett küldemény ({app.data.shipments.length} mentett)</span>
+        <select bind:value={app.data.currentShipmentId}>
+          {#each sortedShipments as x (x.id)}
+            <option value={x.id}>{shipmentLabel(x)}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
   </div>
 
   <section class="card">
@@ -145,28 +173,43 @@
 
   <section class="card">
     <h2 class="section-title"><b class="num">(2)</b> Feladó</h2>
-    <label class="field">
-      <span>Webshop, amelyik feladta</span>
-      <select bind:value={s.shopId}>
-        <option value="">Válassz feladót…</option>
-        {#if ownShops.length}
-          <optgroup label="Saját feladók">
-            {#each ownShops as x (x.id)}<option value={x.id}>{shopLabel(x)}</option>{/each}
+    <div class="field">
+      <label for="shop-select">Webshop, amelyik feladta</label>
+      <div class="shop-pick">
+        <select id="shop-select" value={s.shopId} onchange={(e) => pickShop(e.currentTarget.value)}>
+          <option value="">Válassz feladót…</option>
+          {#if ownShops.length}
+            <optgroup label="Saját feladók">
+              {#each ownShops as x (x.id)}<option value={x.id}>{shopLabel(x)}</option>{/each}
+            </optgroup>
+          {/if}
+          <optgroup label="Ismert japán webshopok">
+            {#each builtinShops as x (x.id)}<option value={x.id}>{shopLabel(x)}</option>{/each}
           </optgroup>
-        {/if}
-        <optgroup label="Ismert japán webshopok">
-          {#each builtinShops as x (x.id)}<option value={x.id}>{shopLabel(x)}</option>{/each}
-        </optgroup>
-      </select>
-    </label>
-    {#if shop}
+          <optgroup label="Nincs a listában?">
+            <option value={NEW_SHOP}>＋ Új feladó felvétele…</option>
+          </optgroup>
+        </select>
+        <button type="button" class="btn" onclick={createShop}><Icon name="plus" size={16} /> Új feladó</button>
+      </div>
+    </div>
+    {#if shop && editingShopId === shop.id}
+      <div class="inline-form">
+        <p class="hint">Írd be a feladót úgy, ahogy a számlán vagy a csomagon szerepel. A saját feladóid közé kerül, máskor is választható.</p>
+        <ShopForm {shop} doneLabel="Kész" ondone={finishShop} />
+      </div>
+    {:else if shop}
       <address class="addr">
-        <strong>{shop.name}</strong><br />
+        <strong>{shop.name || 'Név nélkül'}</strong><br />
         {shop.zip} {shop.city}, {shop.country}<br />
         {shop.address}
+        {#if app.data.shops.some((x) => x.id === shop.id)}
+          <button type="button" class="link edit" onclick={() => (editingShopId = shop.id)}>Szerkesztés</button>
+        {/if}
       </address>
+    {:else}
+      <p class="hint">Ha a webshop nincs a listában, vedd fel az „Új feladó” gombbal: egyszer kell megadni, utána mindig választható.</p>
     {/if}
-    <p class="hint">Nincs a listában? <button type="button" class="link" onclick={() => onnavigate('shops')}>Vegyél fel új feladót</button></p>
   </section>
 
   <section class="card">
@@ -228,7 +271,8 @@
   </section>
 
   <section class="card">
-    <h2 class="section-title"><b class="num">(12)</b> Csatolt okmányok, dokumentumok</h2>
+    <h2 class="section-title"><b class="num">(12)</b> Csatolt okmányok, dokumentumok listája</h2>
+    <p class="hint docs-hint">Itt csak a nyilatkozathoz csatolt dokumentumok megnevezését adod meg (pl. számla, fizetési igazolás), ezek kerülnek a (12) rovatba. Magukat a fájlokat nem kell ide feltölteni.</p>
     {#if s.docs.length}
       <ul class="chips">
         {#each s.docs as d, i (d)}
@@ -283,7 +327,39 @@
     font-size: inherit;
   }
   .date-hint {
-    margin-top: 8px;
+    margin-top: 10px;
+  }
+  .picker .field {
+    margin-top: 12px;
+  }
+  .field > label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+  .shop-pick {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+  .inline-form {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid var(--line-strong);
+    border-left: 3px solid var(--blue);
+    border-radius: 0 8px 8px 0;
+    background: var(--paper);
+  }
+  .inline-form .hint {
+    margin: 0 0 10px;
+  }
+  .edit {
+    display: block;
+    margin-top: 6px;
+    font-size: 13.5px;
+  }
+  .docs-hint {
+    margin: -4px 0 12px;
   }
   .addr {
     font-style: normal;
@@ -399,6 +475,16 @@
     gap: 8px;
   }
   @media (max-width: 520px) {
+    .item-top {
+      flex-wrap: wrap;
+    }
+    .item-top .grow {
+      order: 3;
+      flex-basis: 100%;
+    }
+    .item-tools {
+      margin-left: auto;
+    }
     .item-grid {
       grid-template-columns: 1fr 1fr;
       padding-left: 0;

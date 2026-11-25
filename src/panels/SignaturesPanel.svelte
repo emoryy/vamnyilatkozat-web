@@ -41,6 +41,7 @@
 </script>
 
 <div class="stack">
+  <p class="notice"><b>Nem kell kinyomtatni.</b> A nyilatkozatot nem szükséges papírra nyomtatni és kézzel aláírni: a képként elhelyezett aláírást is elfogadják, így a letöltött PDF közvetlenül beküldhető.</p>
   <p class="hint">Tölts fel egy fotót vagy szkennelt képet, amelyen egyetlen aláírásod van, fehér vagy világos papíron. A hátteret az oldal eltávolítja, utána a nyomtatvány aláírásvonalára igazíthatod. Több aláírást is felvehetsz, és küldeményenként választhatsz közülük.</p>
 
   <button

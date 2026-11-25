@@ -1,7 +1,8 @@
 <script>
   import { app, uid, shopLabel } from '../lib/store.svelte.js';
-  import { BUILTIN_SHOPS, COUNTRIES } from '../lib/catalog.js';
+  import { BUILTIN_SHOPS } from '../lib/catalog.js';
   import ConfirmButton from '../components/ConfirmButton.svelte';
+  import ShopForm from '../components/ShopForm.svelte';
   import Icon from '../components/Icon.svelte';
 
   let editingId = $state(null);
@@ -43,35 +44,7 @@
   {#each app.data.shops as shop (shop.id)}
     <article class="card shop">
       {#if editingId === shop.id}
-        <div class="grid-2">
-          <label class="field span-2">
-            <span>Megjelenő név a listában</span>
-            <input type="text" bind:value={shop.label} placeholder="pl. Kedvenc boltom" />
-          </label>
-          <label class="field span-2">
-            <span>Név (ahogy a számlán, csomagon szerepel)</span>
-            <input type="text" bind:value={shop.name} placeholder="pl. Example Hobby Co., Ltd." />
-          </label>
-          <label class="field">
-            <span>Ország</span>
-            <input type="text" list="countries" bind:value={shop.country} />
-          </label>
-          <label class="field">
-            <span>Irányítószám</span>
-            <input class="mono" type="text" bind:value={shop.zip} />
-          </label>
-          <label class="field span-2">
-            <span>Település</span>
-            <input type="text" bind:value={shop.city} />
-          </label>
-          <label class="field span-2">
-            <span>Közelebbi cím</span>
-            <input type="text" bind:value={shop.address} placeholder="utca, házszám, épület, kerület" />
-          </label>
-        </div>
-        <div class="row end">
-          <button type="button" class="btn primary small" onclick={() => (editingId = null)}><Icon name="check" size={16} /> Kész</button>
-        </div>
+        <ShopForm {shop} ondone={() => (editingId = null)} />
       {:else}
         <div class="shop-view">
           <div>
@@ -88,9 +61,6 @@
     </article>
   {/each}
 
-  <datalist id="countries">
-    {#each COUNTRIES as c (c)}<option value={c}></option>{/each}
-  </datalist>
 
   <section>
     <button type="button" class="btn ghost" onclick={() => (showBuiltin = !showBuiltin)} aria-expanded={showBuiltin}>
@@ -130,10 +100,6 @@
     margin: 0 0 6px;
     font-size: 14px;
     color: var(--ink-2);
-  }
-  .end {
-    justify-content: flex-end;
-    margin-top: 10px;
   }
   .chev {
     display: inline-grid;

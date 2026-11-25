@@ -15,7 +15,7 @@
     { id: 'profile', label: 'Adataim' },
     { id: 'signature', label: 'Aláírás' },
     { id: 'lists', label: 'Listák' },
-    { id: 'backup', label: 'Mentés' },
+    { id: 'backup', label: 'Export / import' },
   ];
 
   function readTab() {
@@ -96,13 +96,21 @@
         {/if}
       </div>
 
+      <p class="save-status" class:bad={!!app.error}>
+        {#if app.error}
+          Az adatok mentése most nem működik, lásd a figyelmeztetést.
+        {:else}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" /></svg>
+          Minden változás automatikusan mentődik ebben a böngészőben.
+        {/if}
+      </p>
       <footer class="disclaimer">
         Nem hivatalos segédeszköz, a Magyar Posta Zrt.-hez nincs köze. A kitöltött nyomtatvány tartalmáért a nyilatkozatot benyújtó felel.
       </footer>
     </aside>
 
     <section class="preview-area" aria-label="Előnézet">
-      {#if app.ready}<Preview />{/if}
+      {#if app.ready}<Preview onnavigate={select} />{/if}
     </section>
   </main>
 </div>
@@ -174,20 +182,21 @@
   .tabs {
     display: flex;
     gap: 2px;
-    padding: 10px 14px 0;
+    padding: 10px 10px 0;
     border-bottom: 1px solid var(--line-strong);
     background: var(--paper-2);
     overflow-x: auto;
+    scrollbar-width: none;
   }
   .tab {
     position: relative;
     border: 1px solid transparent;
     border-bottom: none;
     background: transparent;
-    padding: 8px 12px 9px;
+    padding: 8px 10px 9px;
     font-family: var(--f-display);
     font-weight: 600;
-    font-size: 15px;
+    font-size: 14.5px;
     color: var(--ink-2);
     border-radius: 7px 7px 0 0;
     cursor: pointer;
@@ -227,6 +236,22 @@
     flex: 1;
     overflow: auto;
     padding: 16px 16px 24px;
+  }
+  .save-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 7px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--green);
+    border-top: 1px solid var(--line);
+    background: var(--green-soft);
+  }
+  .save-status.bad {
+    color: var(--red);
+    background: var(--red-soft);
   }
   .disclaimer {
     font-size: 12.5px;

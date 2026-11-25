@@ -102,8 +102,9 @@
   }
   .combo input {
     width: 100%;
-    background: var(--card);
-    border: 1px solid var(--line-strong);
+    background: var(--field);
+    border: 1px solid var(--field-border);
+    box-shadow: inset 0 1px 2px rgba(24, 32, 47, 0.07);
     border-radius: var(--radius);
     padding: 7px 10px;
     font-size: 15px;
@@ -122,7 +123,7 @@
     margin: 0;
     padding: 4px;
     list-style: none;
-    background: var(--card);
+    background: var(--field);
     border: 1px solid var(--line-strong);
     border-radius: var(--radius);
     box-shadow: 0 14px 30px -12px rgba(24, 32, 47, 0.45);
