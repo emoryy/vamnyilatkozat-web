@@ -28,7 +28,12 @@ A címek a webshopok saját jogi közlemény / cégadat oldaláról származnak 
 
 ## Telepítés
 
-Cloudflare Pages, statikus: a `dist/` mappa tartalma, build parancs `npm run build`, kimenet `dist`.
+Cloudflare Pages, projekt: `vamnyilatkozat` (https://vamnyilatkozat.pages.dev). A `cf` CLI Pages-re nem tud feltölteni, ezért wranglerrel, a projekthez hozzá nem adva:
+
+```bash
+npm run build
+npx wrangler pages deploy dist --project-name vamnyilatkozat --branch master
+```
 
 ## Harmadik fél tartalma
 

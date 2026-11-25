@@ -27,9 +27,28 @@
   }
 
   let tab = $state(readTab());
+  // Phones only: the preview opens as a full-screen overlay from a fixed button.
+  let previewOpen = $state(false);
+
+  $effect(() => {
+    document.body.classList.toggle('preview-open', previewOpen);
+    if (!previewOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') previewOpen = false;
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  function navigateFromPreview(id) {
+    previewOpen = false;
+    select(id);
+  }
 
   function select(id) {
     tab = id;
+    // On a narrow screen the chosen tab may sit outside the scrolled tab bar.
+    queueMicrotask(() => document.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
     try {
       localStorage.setItem('tab', id);
     } catch {
@@ -92,7 +111,7 @@
       </nav>
 
       <div class="panel">
-        {#if app.error}<p class="notice warn">{app.error}</p>{/if}
+        {#if app.error}<p class="notice warn app-error">{app.error}</p>{/if}
         {#if !app.ready}
           <p class="hint">Betöltés…</p>
         {:else if tab === 'shipment'}
@@ -127,11 +146,18 @@
       </footer>
     </aside>
 
-    <section class="preview-area" aria-label="Előnézet">
-      {#if app.ready}<Preview onnavigate={select} />{/if}
+    <section class="preview-area" class:open={previewOpen} aria-label="Előnézet">
+      {#if app.ready}<Preview onnavigate={navigateFromPreview} onclose={() => (previewOpen = false)} />{/if}
     </section>
   </main>
 </div>
+
+{#if !previewOpen}
+  <button type="button" class="preview-fab" onclick={() => (previewOpen = true)}>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v5h5M9 13h7M9 17h5" /></svg>
+    Előnézet
+  </button>
+{/if}
 
 {#if app.lock === 'elsewhere' || app.lock === 'lost'}
   <dialog
@@ -309,6 +335,9 @@
     color: var(--ink-2);
     margin-bottom: 16px;
   }
+  .app-error {
+    margin-bottom: 12px;
+  }
   .save-status {
     display: flex;
     align-items: center;
@@ -354,8 +383,61 @@
     .panel {
       overflow: visible;
     }
+    .tabs {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
     .preview-area {
-      min-height: 80vh;
+      display: none;
+    }
+    .preview-area.open {
+      display: flex;
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+    }
+    /* Room at the bottom so the fixed button never covers the last lines. */
+    .sidebar {
+      padding-bottom: 76px;
+    }
+    :global(body.preview-open) {
+      overflow: hidden;
+    }
+  }
+  .preview-fab {
+    display: none;
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 50;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 18px;
+    border: none;
+    border-radius: 99px;
+    background: var(--post);
+    color: #fff;
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: 16px;
+    box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+  }
+  .preview-fab:hover {
+    background: var(--post-hover);
+  }
+  @media (max-width: 980px) {
+    .preview-fab {
+      display: inline-flex;
+    }
+    /* Touch scrolling needs no bar; the fade shows that more tabs follow. */
+    .tabs {
+      scrollbar-width: none;
+      mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    }
+    .tabs::-webkit-scrollbar {
+      display: none;
     }
   }
   @media (max-width: 520px) {

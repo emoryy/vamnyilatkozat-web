@@ -360,6 +360,7 @@ a {
   padding: 8px 12px;
   border-radius: 0 var(--radius) var(--radius) 0;
   font-size: 14px;
+  margin: 0;
 }
 
 .notice.warn {

@@ -7,7 +7,8 @@
   import { downloadBlob } from '../lib/download.js';
   import Icon from './Icon.svelte';
 
-  let { onnavigate } = $props();
+  // `onclose` is set where the preview is an overlay (phones); it adds a close button.
+  let { onnavigate, onclose } = $props();
 
   const RASTER_DPI = 300;
   const MIN_RASTER_DPI = 200;
@@ -128,6 +129,11 @@
 
 <div class="toolbar">
   <div class="status">
+    {#if onclose}
+      <button type="button" class="close" onclick={onclose} aria-label="Előnézet bezárása">
+        <Icon name="x" size={20} />
+      </button>
+    {/if}
     <span class="title">Előnézet</span>
     {#if busy}
       <span class="pill working">frissül…</span>
@@ -184,6 +190,22 @@
     display: flex;
     align-items: center;
     gap: 10px;
+  }
+  .close {
+    display: none;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: transparent;
+    color: #fff;
+    border-radius: 6px;
+    width: 36px;
+    height: 36px;
+    place-items: center;
+    cursor: pointer;
+  }
+  @media (max-width: 980px) {
+    .close {
+      display: inline-grid;
+    }
   }
   .title {
     font-family: var(--f-display);
