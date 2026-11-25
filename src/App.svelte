@@ -1,5 +1,5 @@
 <script>
-  import { app, SAVE_ERROR } from './lib/store.svelte.js';
+  import { app, SAVE_ERROR, takeOver } from './lib/store.svelte.js';
   import Toasts from './components/Toasts.svelte';
   import Preview from './components/Preview.svelte';
   import ShipmentPanel from './panels/ShipmentPanel.svelte';
@@ -100,7 +100,9 @@
 
       {#if app.ready}
         <p class="save-status" class:bad={!saving}>
-          {#if !saving}
+          {#if app.lock === 'lost'}
+            Ez a lap szünetel, az alkalmazás egy másik lapon fut.
+          {:else if !saving}
             Az adatok mentése most nem működik, lásd a figyelmeztetést.
           {:else}
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" /></svg>
@@ -118,6 +120,23 @@
     </section>
   </main>
 </div>
+
+{#if app.lock === 'elsewhere' || app.lock === 'lost'}
+  <div class="lock-veil" role="dialog" aria-modal="true" aria-labelledby="lock-title">
+    <div class="lock-card">
+      <h2 id="lock-title">{app.lock === 'lost' ? 'Ez a lap szünetel' : 'Az alkalmazás egy másik lapon már nyitva van'}</h2>
+      <p>
+        {#if app.lock === 'lost'}
+          Az alkalmazást egy másik lapon kezdted használni, ezért ez a lap nem ment többé, hogy ne írja felül a másik lap adatait.
+        {:else}
+          Hogy a két lap ne írja felül egymás adatait, egyszerre csak egy lapon használható.
+        {/if}
+      </p>
+      <p class="sub">Ha itt folytatod, a másik lap szünetel, és ez a lap a legutóbb mentett adatokkal indul.</p>
+      <button type="button" class="btn primary" onclick={takeOver}>Használom ezen a lapon</button>
+    </div>
+  </div>
+{/if}
 
 <Toasts />
 
@@ -246,6 +265,38 @@
     flex: 1;
     overflow: auto;
     padding: 16px 16px 24px;
+  }
+  .lock-veil {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(20, 24, 32, 0.6);
+  }
+  .lock-card {
+    max-width: 480px;
+    background: var(--paper);
+    border: 1px solid var(--line-strong);
+    border-top: 4px solid var(--red);
+    border-radius: 10px;
+    padding: 20px 22px;
+    box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.55);
+  }
+  .lock-card h2 {
+    font-size: 20px;
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+  .lock-card p {
+    margin: 0 0 10px;
+    font-size: 15px;
+  }
+  .lock-card .sub {
+    font-size: 14px;
+    color: var(--ink-2);
+    margin-bottom: 16px;
   }
   .save-status {
     display: flex;

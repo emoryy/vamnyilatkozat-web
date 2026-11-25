@@ -171,7 +171,9 @@ function normalizeData(stored) {
 }
 
 // `autosave` tells whether changes are stored at all; a failed load leaves it off.
-export const app = $state({ ready: false, data: defaults(), error: '', autosave: false });
+// `lock`: 'pending' until known, 'active' in the one tab that may use the data,
+// 'elsewhere' when another tab already has it, 'lost' after another tab took it over.
+export const app = $state({ ready: false, data: defaults(), error: '', autosave: false, lock: 'pending' });
 
 // Object URLs of processed signature PNGs, keyed by signature id.
 export const sigUrls = $state({});
@@ -183,8 +185,7 @@ function setSigUrl(id, blob) {
 }
 
 // All storage access goes through one queue. Every task runs alone, so an autosave, a
-// signature save or delete, an import, a reset or a reload for another tab's save can
-// never interleave with another one.
+// signature save or delete, an import or a reset can never interleave with another one.
 let queue = Promise.resolve();
 // The running task only reads storage; a save on page close need not wait for it.
 let runningReadOnly = false;
@@ -251,7 +252,6 @@ function snapshot() {
 function markSaved(json) {
   lastSaved = json;
   if (app.error.startsWith(SAVE_ERROR)) app.error = '';
-  announceSave();
 }
 
 /** Stores the current data; only called from inside a queue task. */
@@ -274,61 +274,6 @@ function persistNow() {
   clearTimeout(saveTimer);
   return enqueue(writeData);
 }
-
-// Every save is announced to the app's other open tabs, which reload the stored data,
-// so two tabs don't keep overwriting each other with their own copy.
-const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('vamnyilatkozat-data') : null;
-
-function announceSave() {
-  channel?.postMessage('saved');
-}
-
-function mergeSignatures(local, stored) {
-  const byId = new Map(stored.map((sig) => [sig.id, sig]));
-  const kept = local
-    .filter((sig) => byId.has(sig.id))
-    .map((sig) => (byId.get(sig.id).updatedAt === sig.updatedAt ? sig : byId.get(sig.id)));
-  const keptIds = new Set(kept.map((sig) => sig.id));
-  return [...kept, ...stored.filter((sig) => !keptIds.has(sig.id))];
-}
-
-function reloadFromStorage() {
-  return enqueue(async () => {
-    if (!loaded) return;
-    const local = snapshot();
-    try {
-      const stored = await get(DATA_KEY, db);
-      const data = stored ? normalizeData(stored) : defaults();
-      // Only images that are new or were edited are read again; the rest keep their URL.
-      const versions = new Map(app.data.signatures.map((sig) => [sig.id, sig.updatedAt]));
-      const changed = data.signatures.filter((sig) => !sigUrls[sig.id] || versions.get(sig.id) !== sig.updatedAt);
-      const pngs = await getMany(changed.map((sig) => sigKey(sig.id, 'png')), db);
-      const ids = new Set(data.signatures.map((sig) => sig.id));
-      for (const id of Object.keys(sigUrls)) if (!ids.has(id)) setSigUrl(id, null);
-      changed.forEach((sig, i) => setSigUrl(sig.id, pngs[i] instanceof Blob ? pngs[i] : null));
-      if (local !== lastSaved || snapshot() !== local) {
-        // This tab has unsaved edits, which win; its save follows. Adding, editing and
-        // deleting a signature is stored at once, though, so the stored list decides which
-        // signatures exist, or the save would bring back one the other tab deleted (without
-        // its images). A rename or reorder is only autosaved, so that part stays local.
-        app.data.signatures = mergeSignatures(app.data.signatures, data.signatures);
-        for (const sh of app.data.shipments) if (sh.signatureId && !ids.has(sh.signatureId)) sh.signatureId = '';
-        return;
-      }
-      clearTimeout(saveTimer);
-      // The selected shipment belongs to this tab, so another tab's choice does not switch it.
-      if (data.shipments.some((sh) => sh.id === app.data.currentShipmentId)) {
-        data.currentShipmentId = app.data.currentShipmentId;
-      }
-      lastSaved = JSON.stringify(data);
-      app.data = data;
-    } catch {
-      // Keep showing this tab's copy; its next save stores it as before.
-    }
-  }, { readOnly: true });
-}
-
-if (channel) channel.onmessage = () => reloadFromStorage();
 
 function startAutosave() {
   loaded = true;
@@ -353,14 +298,58 @@ function startAutosave() {
   });
 }
 
+// The data is used by one tab at a time: whole-document saves from two tabs would
+// overwrite each other. A second tab waits until the user moves the app over to it.
+const LOCK = 'vamnyilatkozat-app';
+
 export function init() {
+  if (!navigator.locks) {
+    // Without the Web Locks API the guard is skipped rather than blocking the app.
+    app.lock = 'active';
+    load();
+    return;
+  }
+  navigator.locks
+    .request(LOCK, { ifAvailable: true }, (lock) => {
+      if (!lock) {
+        app.lock = 'elsewhere';
+        return undefined;
+      }
+      return holdLock();
+    })
+    .catch(lockLost);
+}
+
+/** Moves the app to this tab; the tab that had it stops writing. */
+export function takeOver() {
+  navigator.locks.request(LOCK, { steal: true }, () => holdLock()).catch(lockLost);
+}
+
+// The lock is held for the life of the tab, until another tab steals it.
+function holdLock() {
+  app.lock = 'active';
+  load();
+  return new Promise(() => {});
+}
+
+function lockLost() {
+  // From now on the other tab's copy is the current one, so this tab must not save.
+  loaded = false;
+  app.autosave = false;
+  clearTimeout(saveTimer);
+  app.lock = 'lost';
+}
+
+function load() {
   return enqueue(async () => {
     let ok = false;
     let phase = 'read';
+    app.error = '';
+    for (const id of Object.keys(sigUrls)) setSigUrl(id, null);
     try {
       const stored = await get(DATA_KEY, db);
       phase = 'parse';
-      if (stored) app.data = normalizeData(stored);
+      app.data = stored ? normalizeData(stored) : defaults();
       phase = 'images';
       ok = true;
       lastSaved = snapshot();
@@ -607,7 +596,6 @@ export async function importBackup(file) {
     app.error = '';
     lastSaved = json;
     startAutosave();
-    announceSave();
   });
 }
 
@@ -623,6 +611,5 @@ export function resetAll() {
     app.error = '';
     lastSaved = json;
     startAutosave();
-    announceSave();
   });
 }
