@@ -268,13 +268,13 @@
     background: var(--red);
   }
   .dot {
-    display: inline-block;
+    position: absolute;
+    top: 5px;
+    right: 4px;
     width: 7px;
     height: 7px;
     border-radius: 50%;
     background: var(--red);
-    margin-left: 5px;
-    vertical-align: 2px;
   }
   .panel {
     position: relative;
