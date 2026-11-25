@@ -1,10 +1,14 @@
 # Vámnyilatkozat-kitöltő
 
+**Kipróbálható itt: https://vamnyilatkozat.pages.dev**
+
 Statikus webapp a Magyar Posta „Nyilatkozat automatikus postai vámkezelésű küldeményhez” nyomtatványának (2026-10-es kiadás) kitöltéséhez. Minden a böngészőben fut: a PDF-et a böngésző állítja elő, az adatok (saját adatok, feladók, küldemények, listák, aláírásképek) a böngésző IndexedDB-jében maradnak. Nincs szerveroldali komponens, nincs külső kérés.
 
 Nem hivatalos eszköz, a Magyar Posta Zrt.-hez nincs köze.
 
 ## Fejlesztés
+
+A nyomtatvány PDF-je nincs a repóban, mert azt nem terjesztjük: töltsd le a Magyar Posta oldaláról (https://www.posta.hu/vam, „Nyilatkozat automatikus postai vámkezelésű küldeményhez”, 2026-10-es kiadás), és tedd a letöltött `Nyilatkozat_automatikus_postai_vamkezelesu_kuldemenyhez_WEB.pdf` fájlt a `public/assets/` mappába. A `dev` és a `build` előtt lefutó `scripts/check-template.mjs` ellenőrzi az ellenőrzőösszegét (a mezők koordinátái pontosan erre a kiadásra vannak kimérve), és átnevezi `nyilatkozat-2026-10.pdf`-re.
 
 ```bash
 npm install
@@ -24,7 +28,7 @@ npm run build     # dist/
 
 ## Beépített feladócímek
 
-A címek a webshopok saját jogi közlemény / cégadat oldaláról származnak (2026-11-25), a Mandarake boltoké a Mandarake számlákról és bolti oldalairól, a Hobby Search és a Suruga-ya címe a saját (nemzetközi) oldalukról. Nem szerepel: Plaza Japan és Goods Republic (nem közölnek címet).
+A címek a webshopok saját jogi közlemény / cégadat oldaláról származnak (2026-11-25), a Mandarake boltoké a Mandarake bolti oldalairól, a Hobby Search és a Suruga-ya címe a saját (nemzetközi) oldalukról. Nem szerepel: Plaza Japan és Goods Republic (nem közölnek címet).
 
 ## Telepítés
 
@@ -37,6 +41,10 @@ npx wrangler pages deploy dist --project-name vamnyilatkozat --branch master
 
 ## Harmadik fél tartalma
 
-- `public/assets/nyilatkozat-2026-10.pdf`: a Magyar Posta nyilvánosan letölthető nyomtatványa, változatlanul.
+- A Magyar Posta nyomtatványa (`public/assets/nyilatkozat-2026-10.pdf`) nincs a repóban; a buildelő tölti le (lásd Fejlesztés), és a buildbe változatlanul kerül be.
 - `public/assets/LiberationSerif-Regular.ttf`: Liberation Fonts, SIL Open Font License 1.1 (`public/assets/LiberationSerif-LICENSE.txt`).
 - Felület betűkészletek (Bricolage Grotesque, Public Sans, IBM Plex Mono): SIL Open Font License 1.1, a `@fontsource` csomagokból, helyben kiszolgálva.
+
+## Licenc
+
+MIT, lásd `LICENSE`. A LiberationSerif betűkészlet saját licence (SIL OFL 1.1) mellette érvényes.

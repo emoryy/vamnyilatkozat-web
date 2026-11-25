@@ -65,8 +65,8 @@ export const BUILTIN_SHOPS = [
     city: 'Tokyo',
     address: '1-10-15-3F Nihonbashi Horidome, Chuo-ku',
   },
-  // The shop's site (2026-11); an older 2025 invoice still had 4F Sumida Park Place,
-  // 1-1-10 Yokokawa, Sumida-ku, 130-0003 (the company moved in April 2025).
+  // The shop's site (2026-11). The company moved here in April 2025 from 4F Sumida Park
+  // Place, 1-1-10 Yokokawa, Sumida-ku, 130-0003, which older invoices still show.
   {
     id: 'b:hobbysearch',
     label: 'Hobby Search',

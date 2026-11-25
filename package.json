@@ -4,7 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/check-template.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/check-template.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -21,5 +23,6 @@
     "idb-keyval": "^6.3.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.7.284"
-  }
+  },
+  "license": "MIT"
 }

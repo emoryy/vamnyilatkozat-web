@@ -143,6 +143,7 @@
       {/if}
       <footer class="disclaimer">
         Nem hivatalos segédeszköz, a Magyar Posta Zrt.-hez nincs köze. A kitöltött nyomtatvány tartalmáért a nyilatkozatot benyújtó felel.
+        <a href="https://github.com/emoryy/vamnyilatkozat-web" target="_blank" rel="noopener noreferrer">Forráskód</a>
       </footer>
     </aside>
 

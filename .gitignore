@@ -1,2 +1,6 @@
 node_modules
 dist
+
+# The Magyar Posta form is not redistributed; see README.
+public/assets/nyilatkozat-2026-10.pdf
+public/assets/Nyilatkozat_automatikus_postai_vamkezelesu_kuldemenyhez_WEB.pdf
