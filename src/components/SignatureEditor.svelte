@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { saveSignature, signatureSource, uid } from '../lib/store.svelte.js';
   import {
-    loadSourceImage, processSignature, defaultPlacement, canvasToBlob, blobToCanvas, rotateCanvas,
+    loadSourceImage, processSignature, defaultPlacement, canvasToBlob, blobToCanvas, rotateCanvas, exifTurn,
   } from '../lib/signature-image.js';
   import { renderRegion } from '../lib/pdfjs.js';
   import { templateBytes } from '../lib/declaration.js';
@@ -26,6 +26,10 @@
   let crop = $state(initial.existing?.params?.crop || null);
   // Clockwise quarter turns of the photo; phones often store a paper shot sideways.
   let rotation = $state(initial.existing?.params?.rotation || 0);
+  // The turn the browser applied for the photo's EXIF orientation tag. A camera pointed
+  // down at a sheet on a table often records a wrong one, so the editor offers to undo it.
+  let exifTurnDeg = $state(initial.existing?.params?.exifTurn || 0);
+  let rawRotation = $derived((360 - exifTurnDeg) % 360);
   let placement = $state(initial.existing?.placement ? { ...initial.existing.placement } : null);
 
   // The photo as loaded, and `source`, the same turned by `rotation`, which crop and
@@ -51,7 +55,10 @@
     (async () => {
       try {
         let canvas;
-        if (file) canvas = await loadSourceImage(file);
+        if (file) {
+          canvas = await loadSourceImage(file);
+          exifTurnDeg = await exifTurn(file);
+        }
         else {
           // A backup may carry a signature without its original photo.
           const stored = await signatureSource(existing.id);
@@ -103,6 +110,10 @@
       stale = true;
     };
   });
+
+  function rotateTo(deg) {
+    if (deg !== rotation) rotate(deg - rotation);
+  }
 
   // A crop and a placement made for the old orientation no longer fit.
   function rotate(quarter) {
@@ -260,7 +271,7 @@
         width: processed.width,
         height: processed.height,
         placement: { x: placement.x, y: placement.y, width: placement.width },
-        params: { crop: crop ? { ...crop } : null, sensitivity, color, rotation },
+        params: { crop: crop ? { ...crop } : null, sensitivity, color, rotation, exifTurn: exifTurnDeg },
         createdAt: existing?.createdAt || now,
         updatedAt: now,
       };
@@ -283,6 +294,16 @@
       <section class="step">
         <h3><span class="n">1</span> Kivágás</h3>
         <p class="hint">Ha a kép el van fordulva, forgasd a helyes állásba. Ha a képen más is van (pl. a papír széle, egyéb írás), húzz egy keretet az aláírás köré; keret nélkül az egész kép számít.</p>
+        {#if exifTurnDeg}
+          <div class="exif-note">
+            <p>A fotóban elforgatási jelzés van, ezért a böngésző elforgatva jeleníti meg. Ha a felvétel lefelé, egy asztalon fekvő papírra nézve készült, ez a jelzés gyakran hibás.</p>
+            {#if rotation === rawRotation}
+              <button type="button" class="btn small" onclick={() => rotateTo(0)}>Jelzés szerinti állás</button>
+            {:else}
+              <button type="button" class="btn small" onclick={() => rotateTo(rawRotation)}>Eredeti állás (jelzés nélkül)</button>
+            {/if}
+          </div>
+        {/if}
         <div
           class="crop-box"
           bind:this={cropBox}
@@ -417,6 +438,21 @@
     color: #fff;
     font-size: 12.5px;
     font-family: var(--f-mono);
+  }
+  .exif-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 8px 12px;
+    border-left: 3px solid var(--blue);
+    border-radius: 0 6px 6px 0;
+    background: var(--blue-soft);
+  }
+  .exif-note p {
+    flex: 1 1 260px;
+    margin: 0;
+    font-size: 13.5px;
   }
   .crop-box {
     position: relative;

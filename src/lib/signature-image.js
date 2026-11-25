@@ -30,6 +30,39 @@ export async function blobToCanvas(blob) {
   return c;
 }
 
+/**
+ * The clockwise turn the browser applies to a JPEG because of its EXIF orientation tag
+ * (0, 90, 180 or 270). Mirrored orientations and files without a tag give 0.
+ */
+export async function exifTurn(file) {
+  const TURNS = { 3: 180, 6: 90, 8: 270 };
+  try {
+    const view = new DataView(await file.slice(0, 256 * 1024).arrayBuffer());
+    if (view.getUint16(0) !== 0xffd8) return 0;
+    let off = 2;
+    while (off + 4 <= view.byteLength) {
+      const marker = view.getUint16(off);
+      if ((marker & 0xff00) !== 0xff00 || marker === 0xffda) return 0;
+      // APP1 segment starting with "Exif\0\0", then a TIFF header.
+      if (marker === 0xffe1 && view.getUint32(off + 4) === 0x45786966) {
+        const tiff = off + 10;
+        const little = view.getUint16(tiff) === 0x4949;
+        const ifd = tiff + view.getUint32(tiff + 4, little);
+        const count = view.getUint16(ifd, little);
+        for (let i = 0; i < count; i++) {
+          const entry = ifd + 2 + i * 12;
+          if (view.getUint16(entry, little) === 0x0112) return TURNS[view.getUint16(entry + 8, little)] || 0;
+        }
+        return 0;
+      }
+      off += 2 + view.getUint16(off + 2);
+    }
+  } catch {
+    // A truncated or unusual header is treated as untagged.
+  }
+  return 0;
+}
+
 /** Returns the canvas turned clockwise by `deg` (a multiple of 90). */
 export function rotateCanvas(src, deg) {
   const d = ((deg % 360) + 360) % 360;
