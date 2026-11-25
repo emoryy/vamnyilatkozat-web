@@ -5,7 +5,7 @@
 </script>
 
 <div class="stack">
-  <p class="hint">Ezek az adatok minden nyilatkozatra rákerülnek. Csak ebben a böngészőben tárolódnak.</p>
+  <p class="hint">Ezek az adatok minden nyilatkozatra rákerülnek. <span class="local-note"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>Csak ebben a böngészőben tárolódnak.</span></p>
 
   <section class="card">
     <h2 class="section-title"><b class="num">(4)</b> Nyilatkozatot benyújtó adatai</h2>

@@ -6,7 +6,7 @@
   --field-border: #9c8c6e;
   --ink: #18202f;
   --ink-2: #3d4659;
-  --ink-3: #5a6275;
+  --ink-3: #434b5c;
   --line: #d4c8b2;
   --line-strong: #b0a184;
   --red: #b3302a;
@@ -139,9 +139,19 @@ a {
 }
 
 .hint {
-  font-size: 13px;
+  font-size: 13.5px;
   color: var(--ink-3);
   margin: 0;
+}
+
+/* "Stays in this browser" statements, set off from the surrounding hint text. */
+.local-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: var(--green);
+  white-space: nowrap;
 }
 
 /* A hint under a control needs air, or it reads as part of the control. */
