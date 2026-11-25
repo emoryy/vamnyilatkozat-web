@@ -64,6 +64,11 @@ function uniqueIds(records) {
   return records;
 }
 
+function dropRepeatedIds(records) {
+  const seen = new Set();
+  return records.filter((r) => !seen.has(r.id) && seen.add(r.id));
+}
+
 function normalizePerson(p) {
   const src = isObject(p) ? p : {};
   return Object.fromEntries(Object.keys(emptyPerson()).map((k) => [k, text(src[k])]));
@@ -130,7 +135,7 @@ function normalizeSignatureParams(params) {
   return {
     crop,
     sensitivity: finite(src.sensitivity) ? Math.max(0, Math.min(1, src.sensitivity)) : 0.5,
-    color: text(src.color) || 'auto',
+    color: ['auto', 'blue', 'black'].includes(src.color) ? src.color : 'auto',
   };
 }
 
@@ -150,9 +155,7 @@ function normalizeData(stored) {
     terms: strings(stored.terms),
     docs: strings(stored.docs),
     // A signature id also names its image keys, so a repeated one is dropped, not renamed.
-    signatures: list(stored.signatures, isObject)
-      .map(normalizeSignature)
-      .filter((sig, i, all) => sig && all.findIndex((x) => x?.id === sig.id) === i),
+    signatures: dropRepeatedIds(list(stored.signatures, isObject).map(normalizeSignature).filter(Boolean)),
     shipments: uniqueIds(list(stored.shipments, isObject).map(normalizeShipment)),
     currentShipmentId: text(stored.currentShipmentId),
     settings: { rasterize: typeof settings.rasterize === 'boolean' ? settings.rasterize : base.settings.rasterize },
@@ -237,7 +240,8 @@ export async function init() {
     lastSaved = snapshot();
     const pngs = await getMany(app.data.signatures.map((s) => sigKey(s.id, 'png')));
     app.data.signatures.forEach((s, i) => {
-      if (pngs[i]) setSigUrl(s.id, pngs[i]);
+      // A damaged value would make createObjectURL throw and skip every later preview.
+      if (pngs[i] instanceof Blob) setSigUrl(s.id, pngs[i]);
     });
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   } catch (err) {
@@ -400,6 +404,10 @@ export async function importBackup(file) {
   } catch {
     throw new Error('A mentésben lévő aláíráskép sérült.');
   }
+  // A signature without its image would look selectable but leave the PDF unsigned.
+  const withPng = new Set(images.filter((i) => i.png).map((i) => i.id));
+  data.signatures = data.signatures.filter((s) => withPng.has(s.id));
+  for (const sh of data.shipments) if (sh.signatureId && !withPng.has(sh.signatureId)) sh.signatureId = '';
   // The new images and data go in one transaction, so a failed write (e.g. the storage
   // quota) changes nothing, not even images whose ids the current data shares; the old
   // keys are dropped only afterwards.
@@ -447,8 +455,16 @@ async function wipeAll(keep = new Set()) {
 export async function resetAll() {
   if (replacing) throw new Error(BUSY);
   replacing = true;
+  // Saving is paused while the keys are deleted, so nothing written meanwhile outlives the reset.
+  const couldSave = canSave;
+  canSave = false;
   try {
-    await wipeAll();
+    await wipeAll().catch((err) => {
+      canSave = couldSave;
+      // Nothing was deleted; an edit made meanwhile was not saved, so save it now.
+      persistNow();
+      throw err;
+    });
     app.data = defaults();
     app.error = '';
     startAutosave();
