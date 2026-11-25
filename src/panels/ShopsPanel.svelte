@@ -7,6 +7,8 @@
   import Icon from '../components/Icon.svelte';
 
   let editingId = $state(null);
+  // Only a sender added here and left empty is dropped; clearing an existing one keeps it.
+  let newShopId = null;
   let showBuiltin = $state(false);
 
   function add(from) {
@@ -14,6 +16,7 @@
     delete shop.builtin;
     app.data.shops = [shop, ...app.data.shops];
     edit(shop.id);
+    newShopId = shop.id;
   }
 
   function edit(id) {
@@ -26,7 +29,8 @@
   function closeEditing() {
     const shop = editingId && app.data.shops.find((x) => x.id === editingId);
     editingId = null;
-    if (shop && isBlankShop(shop) && !usedBy(shop.id)) removeShop(shop.id);
+    if (shop && shop.id === newShopId && isBlankShop(shop) && !usedBy(shop.id)) removeShop(shop.id);
+    newShopId = null;
   }
 
   onDestroy(closeEditing);

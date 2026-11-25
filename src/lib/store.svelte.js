@@ -212,8 +212,15 @@ const isOwnKey = (k) => typeof k === 'string' && (k === DATA_KEY || k.startsWith
  */
 function commit(puts, { del = [], keepOnly = null } = {}) {
   return db('readwrite', (store) => {
-    for (const [k, v] of puts) store.put(v, k);
-    for (const k of del) store.delete(k);
+    const tx = store.transaction;
+    try {
+      for (const [k, v] of puts) store.put(v, k);
+      for (const k of del) store.delete(k);
+    } catch (err) {
+      // A put that throws (e.g. DataCloneError) would otherwise let the earlier ones commit.
+      tx.abort();
+      throw err;
+    }
     if (keepOnly) {
       const req = store.getAllKeys();
       req.onsuccess = () => {
@@ -222,7 +229,6 @@ function commit(puts, { del = [], keepOnly = null } = {}) {
     }
     // A failed request bubbles an error event before transaction.error is set, so only
     // the abort carries the cause.
-    const tx = store.transaction;
     return new Promise((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onabort = () => reject(tx.error || new Error('az írás megszakadt'));
@@ -277,6 +283,15 @@ function announceSave() {
   channel?.postMessage('saved');
 }
 
+function mergeSignatures(local, stored) {
+  const byId = new Map(stored.map((sig) => [sig.id, sig]));
+  const kept = local
+    .filter((sig) => byId.has(sig.id))
+    .map((sig) => (byId.get(sig.id).updatedAt === sig.updatedAt ? sig : byId.get(sig.id)));
+  const keptIds = new Set(kept.map((sig) => sig.id));
+  return [...kept, ...stored.filter((sig) => !keptIds.has(sig.id))];
+}
+
 function reloadFromStorage() {
   return enqueue(async () => {
     if (!loaded) return;
@@ -292,10 +307,11 @@ function reloadFromStorage() {
       for (const id of Object.keys(sigUrls)) if (!ids.has(id)) setSigUrl(id, null);
       changed.forEach((sig, i) => setSigUrl(sig.id, pngs[i] instanceof Blob ? pngs[i] : null));
       if (local !== lastSaved || snapshot() !== local) {
-        // This tab has unsaved edits, which win; its save follows. Signatures are stored the
-        // moment they change, though, so their stored list is taken over even then, or the
-        // save would bring back one the other tab deleted (without its images).
-        app.data.signatures = data.signatures;
+        // This tab has unsaved edits, which win; its save follows. Adding, editing and
+        // deleting a signature is stored at once, though, so the stored list decides which
+        // signatures exist, or the save would bring back one the other tab deleted (without
+        // its images). A rename or reorder is only autosaved, so that part stays local.
+        app.data.signatures = mergeSignatures(app.data.signatures, data.signatures);
         for (const sh of app.data.shipments) if (sh.signatureId && !ids.has(sh.signatureId)) sh.signatureId = '';
         return;
       }
@@ -477,7 +493,8 @@ export function deleteSignature(id) {
       } catch (err) {
         // The signature stays, so the list shown matches what is stored.
         app.data.signatures = before;
-        for (const s of users) s.signatureId = id;
+        // A shipment switched to another signature meanwhile keeps that choice.
+        for (const s of users) if (!s.signatureId) s.signatureId = id;
         throw err;
       }
       markSaved(json);
@@ -509,12 +526,15 @@ function dataUrlToBlob(url) {
 export async function exportBackup() {
   // Queued, so a signature save, delete, import or reset cannot change the images
   // between taking the data and reading the images it refers to.
-  const { data, ids, stored } = await enqueue(async () => {
-    const data = JSON.parse(snapshot());
-    const ids = data.signatures.map((s) => s.id);
-    const stored = await getMany(ids.flatMap((id) => [sigKey(id, 'png'), sigKey(id, 'src')]), db);
-    return { data, ids, stored };
-  });
+  const { data, stored } = await enqueue(
+    async () => {
+      const data = JSON.parse(snapshot());
+      const stored = await getMany(data.signatures.flatMap((s) => [sigKey(s.id, 'png'), sigKey(s.id, 'src')]), db);
+      return { data, stored };
+    },
+    { readOnly: true },
+  );
+  const ids = data.signatures.map((s) => s.id);
   // A damaged stored value is left out instead of failing the whole export.
   const toDataUrl = (v) => (v instanceof Blob ? blobToDataUrl(v) : null);
   const images = Object.fromEntries(
