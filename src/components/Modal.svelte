@@ -28,6 +28,8 @@
     color: var(--ink);
     width: min(720px, calc(100vw - 24px));
     max-height: calc(100vh - 24px);
+    /* The dynamic height excludes a phone browser's address and tool bars. */
+    max-height: calc(100dvh - 24px);
     box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.55);
   }
   dialog.wide {
@@ -41,6 +43,7 @@
     flex-direction: column;
   }
   header {
+    flex: none;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -51,16 +54,42 @@
     font-size: 19px;
     font-weight: 800;
   }
+  /* Without min-height: 0 the body cannot shrink, and a tall body pushes the header and
+     footer out of the dialog. */
   .body {
+    flex: 1 1 auto;
+    min-height: 0;
     padding: 16px 18px;
     overflow: auto;
   }
   footer {
+    flex: none;
     display: flex;
     justify-content: flex-end;
     gap: 8px;
     padding: 12px 18px;
     border-top: 1px solid var(--line);
     background: var(--paper-2);
+  }
+  @media (max-width: 600px) {
+    dialog,
+    dialog.wide {
+      width: 100vw;
+      max-width: 100vw;
+      max-height: 100dvh;
+      height: 100dvh;
+      margin: 0;
+      border: none;
+      border-radius: 0;
+    }
+    header {
+      padding: 10px 16px;
+    }
+    .body {
+      padding: 14px 16px;
+    }
+    footer {
+      padding: 10px 16px;
+    }
   }
 </style>
