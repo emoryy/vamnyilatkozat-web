@@ -1,4 +1,4 @@
-import { get, getMany, set, setMany, keys, delMany } from 'idb-keyval';
+import { get, getMany, createStore, promisifyRequest } from 'idb-keyval';
 
 import { BUILTIN_SHOPS, BUILTIN_TERMS, BUILTIN_DOCS } from './catalog.js';
 
@@ -182,41 +182,76 @@ function setSigUrl(id, blob) {
   else delete sigUrls[id];
 }
 
+// All storage access goes through one queue. Every task runs alone, so an autosave, a
+// signature save or delete, an import, a reset or a reload for another tab's save can
+// never interleave with another one.
+let queue = Promise.resolve();
+
+function enqueue(task) {
+  const run = queue.then(task);
+  queue = run.catch(() => {});
+  return run;
+}
+
+// The default idb-keyval database; `commit` writes and deletes in one transaction.
+const db = createStore('keyval-store', 'keyval');
+const isOwnKey = (k) => typeof k === 'string' && (k === DATA_KEY || k.startsWith('sig:'));
+
+/**
+ * Applies puts and deletes atomically: either all of them happen or none.
+ * With `keepOnly`, every other key of the app is deleted too (import and reset).
+ */
+function commit(puts, { del = [], keepOnly = null } = {}) {
+  return db('readwrite', (store) => {
+    for (const [k, v] of puts) store.put(v, k);
+    for (const k of del) store.delete(k);
+    if (keepOnly) {
+      const req = store.getAllKeys();
+      req.onsuccess = () => {
+        for (const k of req.result) if (isOwnKey(k) && !keepOnly.has(k)) store.delete(k);
+      };
+    }
+    return promisifyRequest(store.transaction);
+  });
+}
+
 let saveTimer = null;
+// The data as this tab last stored or loaded it.
 let lastSaved = '';
-// Until the stored data was read (or replaced on purpose), any save would overwrite it with defaults.
-let canSave = false;
+// Until the stored data was read (or replaced on purpose), a save would overwrite it with defaults.
+let loaded = false;
 let autosaving = false;
-// An import or reset replacing the stored data; a second one at the same time would
-// restore the wrong saving state when it finishes.
-let replacing = false;
-const BUSY = 'Egy visszatöltés vagy törlés már folyamatban van.';
 export const SAVE_ERROR = 'A mentés nem sikerült';
 
 function snapshot() {
   return JSON.stringify(app.data);
 }
 
-/** Resolves to whether the current data is stored (false when saving is paused or failed). */
-export function persistNow() {
-  clearTimeout(saveTimer);
-  if (!canSave) return Promise.resolve(false);
-  const json = snapshot();
-  if (json === lastSaved) return Promise.resolve(true);
+function markSaved(json) {
   lastSaved = json;
-  return set(DATA_KEY, JSON.parse(json)).then(
-    () => {
-      if (app.error.startsWith(SAVE_ERROR)) app.error = '';
-      announceSave();
-      return true;
-    },
-    (err) => {
-      // Forget the failed snapshot so the next change or pagehide tries again.
-      if (lastSaved === json) lastSaved = '';
-      app.error = `${SAVE_ERROR}: ${err.message || err}`;
-      return false;
-    },
-  );
+  if (app.error.startsWith(SAVE_ERROR)) app.error = '';
+  announceSave();
+}
+
+/** Stores the current data; only called from inside a queue task. */
+async function writeData() {
+  if (!loaded) return false;
+  const json = snapshot();
+  if (json === lastSaved) return true;
+  try {
+    await commit([[DATA_KEY, JSON.parse(json)]]);
+    markSaved(json);
+    return true;
+  } catch (err) {
+    // lastSaved stays as it was, so the next change or pagehide tries again.
+    app.error = `${SAVE_ERROR}: ${err.message || err}`;
+    return false;
+  }
+}
+
+function persistNow() {
+  clearTimeout(saveTimer);
+  return enqueue(writeData);
 }
 
 // Every save is announced to the app's other open tabs, which reload the stored data,
@@ -227,38 +262,40 @@ function announceSave() {
   channel?.postMessage('saved');
 }
 
-async function reloadFromStorage() {
-  // Unsaved edits of this tab are kept: their save follows and the other tabs reload it.
-  const local = snapshot();
-  if (!canSave || replacing || local !== lastSaved) return;
-  try {
-    const stored = await get(DATA_KEY);
-    const data = stored ? normalizeData(stored) : defaults();
-    // Only images that are new or were edited are read again; the rest keep their URL.
-    const versions = new Map(app.data.signatures.map((sig) => [sig.id, sig.updatedAt]));
-    const changed = data.signatures.filter((sig) => !sigUrls[sig.id] || versions.get(sig.id) !== sig.updatedAt);
-    const pngs = await getMany(changed.map((sig) => sigKey(sig.id, 'png')));
-    // An edit, import or reset in this tab during the reads is newer than what was read.
-    if (!canSave || replacing || snapshot() !== local) return;
-    clearTimeout(saveTimer);
-    const ids = new Set(data.signatures.map((sig) => sig.id));
-    for (const id of Object.keys(sigUrls)) if (!ids.has(id)) setSigUrl(id, null);
-    changed.forEach((sig, i) => setSigUrl(sig.id, pngs[i] instanceof Blob ? pngs[i] : null));
-    // The selected shipment belongs to this tab, so another tab's choice does not switch it.
-    if (data.shipments.some((sh) => sh.id === app.data.currentShipmentId)) {
-      data.currentShipmentId = app.data.currentShipmentId;
+function reloadFromStorage() {
+  return enqueue(async () => {
+    // Unsaved edits of this tab win: their save follows and the other tabs reload it.
+    const local = snapshot();
+    if (!loaded || local !== lastSaved) return;
+    try {
+      const stored = await get(DATA_KEY, db);
+      const data = stored ? normalizeData(stored) : defaults();
+      // Only images that are new or were edited are read again; the rest keep their URL.
+      const versions = new Map(app.data.signatures.map((sig) => [sig.id, sig.updatedAt]));
+      const changed = data.signatures.filter((sig) => !sigUrls[sig.id] || versions.get(sig.id) !== sig.updatedAt);
+      const pngs = await getMany(changed.map((sig) => sigKey(sig.id, 'png')), db);
+      // Typing during the reads is newer than what was read.
+      if (snapshot() !== local) return;
+      clearTimeout(saveTimer);
+      const ids = new Set(data.signatures.map((sig) => sig.id));
+      for (const id of Object.keys(sigUrls)) if (!ids.has(id)) setSigUrl(id, null);
+      changed.forEach((sig, i) => setSigUrl(sig.id, pngs[i] instanceof Blob ? pngs[i] : null));
+      // The selected shipment belongs to this tab, so another tab's choice does not switch it.
+      if (data.shipments.some((sh) => sh.id === app.data.currentShipmentId)) {
+        data.currentShipmentId = app.data.currentShipmentId;
+      }
+      lastSaved = JSON.stringify(data);
+      app.data = data;
+    } catch {
+      // Keep showing this tab's copy; its next save stores it as before.
     }
-    lastSaved = JSON.stringify(data);
-    app.data = data;
-  } catch {
-    // Keep showing this tab's copy; its next save stores it as before.
-  }
+  });
 }
 
 if (channel) channel.onmessage = () => reloadFromStorage();
 
 function startAutosave() {
-  canSave = true;
+  loaded = true;
   app.autosave = true;
   if (autosaving) return;
   autosaving = true;
@@ -272,32 +309,34 @@ function startAutosave() {
   window.addEventListener('pagehide', () => persistNow());
 }
 
-export async function init() {
-  let loaded = false;
-  let phase = 'read';
-  try {
-    const stored = await get(DATA_KEY);
-    phase = 'parse';
-    if (stored) app.data = normalizeData(stored);
-    phase = 'images';
-    loaded = true;
-    lastSaved = snapshot();
-    const pngs = await getMany(app.data.signatures.map((s) => sigKey(s.id, 'png')));
-    app.data.signatures.forEach((s, i) => {
-      // A damaged value would make createObjectURL throw and skip every later preview.
-      if (pngs[i] instanceof Blob) setSigUrl(s.id, pngs[i]);
-    });
-    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  } catch (err) {
-    const why = err.message || err;
-    app.error = {
-      read: `A böngésző tárhelye nem érhető el (${why}). Privát ablakban vagy letiltott tárhellyel az adatok nem maradnak meg.`,
-      parse: `A tárolt adatok sérültek (${why}). Amíg nem töltesz vissza egy mentést, vagy nem törlöd az adatokat, semmi nem mentődik.`,
-      images: `Az aláírásképek nem tölthetők be (${why}).`,
-    }[phase];
-  }
-  app.ready = true;
-  if (loaded) startAutosave();
+export function init() {
+  return enqueue(async () => {
+    let ok = false;
+    let phase = 'read';
+    try {
+      const stored = await get(DATA_KEY, db);
+      phase = 'parse';
+      if (stored) app.data = normalizeData(stored);
+      phase = 'images';
+      ok = true;
+      lastSaved = snapshot();
+      const pngs = await getMany(app.data.signatures.map((s) => sigKey(s.id, 'png')), db);
+      app.data.signatures.forEach((s, i) => {
+        // A damaged value would make createObjectURL throw and skip every later preview.
+        if (pngs[i] instanceof Blob) setSigUrl(s.id, pngs[i]);
+      });
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    } catch (err) {
+      const why = err.message || err;
+      app.error = {
+        read: `A böngésző tárhelye nem érhető el (${why}). Privát ablakban vagy letiltott tárhellyel az adatok nem maradnak meg.`,
+        parse: `A tárolt adatok sérültek (${why}). Amíg nem importálsz egy exportált fájlt, vagy nem törlöd az adatokat, semmi nem mentődik.`,
+        images: `Az aláírásképek nem tölthetők be (${why}).`,
+      }[phase];
+    }
+    app.ready = true;
+    if (ok) startAutosave();
+  });
 }
 
 // ---- lookups
@@ -366,34 +405,52 @@ export function currentShipment() {
 
 // ---- signatures (images live in their own IndexedDB keys)
 
-export async function saveSignature(meta, { png, source }) {
-  if (!canSave) throw new Error('a tárolt adatok nem töltődtek be, ezért most semmi nem menthető');
-  // One transaction, so a failed write cannot leave a new PNG next to an old source.
-  await setMany([[sigKey(meta.id, 'png'), png], ...(source ? [[sigKey(meta.id, 'src'), source]] : [])]);
-  setSigUrl(meta.id, png);
-  const i = app.data.signatures.findIndex((s) => s.id === meta.id);
-  if (i >= 0) app.data.signatures[i] = meta;
-  else app.data.signatures = [...app.data.signatures, meta];
-  // Without the stored data the signature is gone on the next load, so this is no success.
-  if (!(await persistNow())) throw new Error(app.error || 'az adatok mentése most szünetel');
+/** Stores a new or edited signature: its images and the data referring to them in one transaction. */
+export function saveSignature(meta, { png, source }) {
+  return enqueue(async () => {
+    if (!loaded) throw new Error('a tárolt adatok nem töltődtek be, ezért most semmi nem menthető');
+    const before = app.data.signatures;
+    const i = before.findIndex((s) => s.id === meta.id);
+    app.data.signatures = i >= 0 ? before.map((s, j) => (j === i ? meta : s)) : [...before, meta];
+    const json = snapshot();
+    const puts = [[sigKey(meta.id, 'png'), png]];
+    if (source) puts.push([sigKey(meta.id, 'src'), source]);
+    puts.push([DATA_KEY, JSON.parse(json)]);
+    try {
+      await commit(puts);
+    } catch (err) {
+      app.data.signatures = before;
+      throw err;
+    }
+    markSaved(json);
+    setSigUrl(meta.id, png);
+  });
 }
 
 export function signatureSource(id) {
-  return get(sigKey(id, 'src'));
+  return get(sigKey(id, 'src'), db);
 }
 
 export function signaturePng(id) {
-  return get(sigKey(id, 'png'));
+  return get(sigKey(id, 'png'), db);
 }
 
-export async function deleteSignature(id) {
-  app.data.signatures = app.data.signatures.filter((s) => s.id !== id);
-  for (const s of app.data.shipments) if (s.signatureId === id) s.signatureId = '';
-  setSigUrl(id, null);
-  // The images go only once the data without the signature is stored; otherwise the
-  // stored data still refers to them.
-  if (!(await persistNow())) return;
-  await delMany([sigKey(id, 'png'), sigKey(id, 'src')]);
+/** Removes a signature: the data without it and the deletion of its images in one transaction. */
+export function deleteSignature(id) {
+  return enqueue(async () => {
+    app.data.signatures = app.data.signatures.filter((s) => s.id !== id);
+    for (const s of app.data.shipments) if (s.signatureId === id) s.signatureId = '';
+    setSigUrl(id, null);
+    if (!loaded) return;
+    const json = snapshot();
+    try {
+      await commit([[DATA_KEY, JSON.parse(json)]], { del: [sigKey(id, 'png'), sigKey(id, 'src')] });
+      markSaved(json);
+    } catch (err) {
+      app.error = `${SAVE_ERROR}: ${err.message || err}`;
+      throw err;
+    }
+  });
 }
 
 // ---- backup
@@ -420,7 +477,7 @@ export async function exportBackup() {
   // Taken first, so a signature added while the images are read is not exported without its image.
   const data = JSON.parse(snapshot());
   const ids = data.signatures.map((s) => s.id);
-  const stored = await getMany(ids.flatMap((id) => [sigKey(id, 'png'), sigKey(id, 'src')]));
+  const stored = await getMany(ids.flatMap((id) => [sigKey(id, 'png'), sigKey(id, 'src')]), db);
   // A damaged stored value is left out instead of failing the whole export.
   const toDataUrl = (v) => (v instanceof Blob ? blobToDataUrl(v) : null);
   const images = {};
@@ -468,71 +525,44 @@ export async function importBackup(file) {
   const withPng = new Set(images.filter((i) => i.png).map((i) => i.id));
   data.signatures = data.signatures.filter((s) => withPng.has(s.id));
   for (const sh of data.shipments) if (sh.signatureId && !withPng.has(sh.signatureId)) sh.signatureId = '';
-  // The new images and data go in one transaction, so a failed write (e.g. the storage
-  // quota) changes nothing, not even images whose ids the current data shares; the old
-  // keys are dropped only afterwards.
-  // Saving is paused meanwhile, so an autosave of the old data cannot land after the new one.
-  if (replacing) throw new Error(BUSY);
-  replacing = true;
-  const couldSave = canSave;
-  canSave = false;
   const json = JSON.stringify(data);
-  const entries = [];
+  const puts = [];
   for (const { id, png, src } of images) {
-    if (png) entries.push([sigKey(id, 'png'), png]);
-    if (src) entries.push([sigKey(id, 'src'), src]);
+    if (png) puts.push([sigKey(id, 'png'), png]);
+    if (src) puts.push([sigKey(id, 'src'), src]);
   }
-  entries.push([DATA_KEY, JSON.parse(json)]);
-  try {
+  puts.push([DATA_KEY, JSON.parse(json)]);
+  // One transaction writes the new data and deletes everything else, so a failed write
+  // (e.g. the storage quota) leaves the current data untouched.
+  return enqueue(async () => {
     try {
-      await setMany(entries);
+      await commit(puts, { keepOnly: new Set(puts.map(([k]) => k)) });
     } catch (err) {
-      canSave = couldSave;
-      // An edit made while the import ran was not saved; save it now.
-      persistNow();
-      throw new Error(`A mentés nem tölthető vissza: ${err.message || err}`);
+      throw new Error(`Az importálás nem sikerült: ${err.message || err}`);
     }
-    // The new data is stored by now; old keys left behind by a failed cleanup are only unused.
-    await wipeAll(new Set(entries.map(([k]) => k))).catch(() => {});
+    clearTimeout(saveTimer);
+    for (const id of Object.keys(sigUrls)) setSigUrl(id, null);
     for (const { id, png } of images) if (png) setSigUrl(id, png);
     app.data = data;
     app.error = '';
     lastSaved = json;
     startAutosave();
     announceSave();
-  } finally {
-    replacing = false;
-  }
+  });
 }
 
-async function wipeAll(keep = new Set()) {
-  clearTimeout(saveTimer);
-  const all = await keys();
-  await delMany(all.filter((k) => typeof k === 'string' && (k.startsWith('sig:') || k === DATA_KEY) && !keep.has(k)));
-  for (const id of Object.keys(sigUrls)) setSigUrl(id, null);
-  lastSaved = '';
-}
-
-export async function resetAll() {
-  if (replacing) throw new Error(BUSY);
-  replacing = true;
-  // Saving is paused while the keys are deleted, so nothing written meanwhile outlives the reset.
-  const couldSave = canSave;
-  canSave = false;
-  try {
-    await wipeAll().catch((err) => {
-      canSave = couldSave;
-      // Nothing was deleted; an edit made meanwhile was not saved, so save it now.
-      persistNow();
-      throw err;
-    });
-    app.data = defaults();
+/** Deletes every stored piece of data of the app and starts over with empty data. */
+export function resetAll() {
+  return enqueue(async () => {
+    const data = defaults();
+    const json = JSON.stringify(data);
+    await commit([[DATA_KEY, JSON.parse(json)]], { keepOnly: new Set([DATA_KEY]) });
+    clearTimeout(saveTimer);
+    for (const id of Object.keys(sigUrls)) setSigUrl(id, null);
+    app.data = data;
     app.error = '';
+    lastSaved = json;
     startAutosave();
-    await persistNow();
-  } finally {
-    replacing = false;
-  }
-  if (app.error) throw new Error(app.error);
+    announceSave();
+  });
 }
-

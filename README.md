@@ -18,7 +18,7 @@ npm run build     # dist/
 - `src/lib/field-map.js`: a mezők koordinátái a 2026-10-es nyomtatványon.
 - `src/lib/pdfjs.js`: előnézet és a „Képként (laposítva)” letöltés pdf.js-sel. A laposítás felbontása az aláíráskép saját felbontása (hogy ne nagyítódjon fel), de legalább 200 és legfeljebb 300 DPI, hogy egy kis felbontású aláírás miatt ne mosódjon el a nyomtatvány szövege.
 - `src/lib/signature-image.js`: aláíráskép feldolgozása: papír-háttér becslése (egyenetlen megvilágításhoz is), Otsu-küszöb, apró foltok eltávolítása összefüggő komponensek alapján, levágás a tintára.
-- `src/lib/store.svelte.js`: állapot és tárolás (idb-keyval), mentés és visszatöltés JSON-ból.
+- `src/lib/store.svelte.js`: állapot és tárolás (IndexedDB, idb-keyval). Minden tárolóművelet (automatikus mentés, aláírás mentése és törlése, import, teljes törlés, újratöltés egy másik lap mentése után) egyetlen sorban, egymás után fut, és a több kulcsot érintő írások egy tranzakcióban mennek. A lapok `BroadcastChannel`-en jelzik egymásnak a mentést. A tárolt és az importált adatot `normalizeData` mezőnként ellenőrzi.
 - `src/lib/catalog.js`: beépített feladók, megnevezések, dokumentumtípusok.
 - `public/_headers`: Cloudflare Pages fejlécek, szigorú CSP (`connect-src 'self'`), így az oldal külső címre nem küldhet adatot.
 
