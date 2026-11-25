@@ -4,7 +4,8 @@ const MAX_SOURCE_SIDE = 2400;
 
 export const INK_COLORS = {
   auto: null,
-  blue: [24, 44, 128],
+  // Ballpoint blue usually has a violet cast.
+  blue: [44, 36, 130],
   black: [22, 22, 26],
 };
 

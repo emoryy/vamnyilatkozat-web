@@ -133,7 +133,7 @@
     align-items: center;
     gap: 16px;
     padding: 12px 20px;
-    border-bottom: 2px solid var(--ink);
+    border-bottom: 1px solid var(--line-strong);
     background: var(--paper);
     flex-wrap: wrap;
   }
@@ -185,19 +185,23 @@
   }
   .tabs {
     display: flex;
-    gap: 2px;
+    align-items: flex-end;
+    gap: 4px;
     padding: 10px 10px 0;
-    border-bottom: 1px solid var(--line-strong);
     background: var(--paper-2);
+    /* The bottom line is a shadow, so the active tab can cover it without negative margins
+       (which made the bar scroll vertically). */
+    box-shadow: inset 0 -1px 0 var(--line-strong);
     overflow-x: auto;
+    overflow-y: hidden;
     scrollbar-width: thin;
   }
   .tab {
     position: relative;
-    border: 1px solid transparent;
-    border-bottom: none;
-    background: transparent;
-    padding: 8px 10px 9px;
+    flex: none;
+    border: 1px solid var(--line-strong);
+    background: #d9ceb8;
+    padding: 7px 11px 8px;
     font-family: var(--f-display);
     font-weight: 600;
     font-size: 14.5px;
@@ -205,25 +209,27 @@
     border-radius: 7px 7px 0 0;
     cursor: pointer;
     white-space: nowrap;
-    margin-bottom: -1px;
+    box-shadow: inset 0 -3px 4px -3px rgba(24, 32, 47, 0.18);
   }
   .tab:hover {
     color: var(--ink);
-    background: rgba(255, 255, 255, 0.45);
+    background: #e6dcc8;
   }
   .tab.active {
     background: var(--paper);
-    border-color: var(--line-strong);
+    border-bottom-color: var(--paper);
     color: var(--ink);
+    padding-top: 9px;
+    box-shadow: none;
   }
   .tab.active::before {
     content: '';
     position: absolute;
-    left: 10px;
-    right: 10px;
+    left: -1px;
+    right: -1px;
     top: -1px;
     height: 3px;
-    border-radius: 0 0 3px 3px;
+    border-radius: 7px 7px 0 0;
     background: var(--red);
   }
   .dot {
