@@ -3,6 +3,7 @@
   import SignatureEditor from '../components/SignatureEditor.svelte';
   import ConfirmButton from '../components/ConfirmButton.svelte';
   import Icon from '../components/Icon.svelte';
+  import { toast } from '../lib/toast.svelte.js';
 
   let fileInput;
   let editor = $state(null);
@@ -22,6 +23,14 @@
     e.preventDefault();
     dropping = false;
     openFile(e.dataTransfer?.files?.[0]);
+  }
+
+  async function remove(id) {
+    try {
+      await deleteSignature(id);
+    } catch (err) {
+      toast(`Az aláíráskép nem törölhető: ${err.message || err}`, 'error', 6000);
+    }
   }
 
   function makeFirst(i) {
@@ -65,7 +74,7 @@
         <div class="row">
           <button type="button" class="btn small" onclick={() => (editor = { file: null, existing: $state.snapshot(sig) })}><Icon name="edit" size={16} /> Szerkesztés</button>
           {#if i > 0}<button type="button" class="btn small" onclick={() => makeFirst(i)}>Legyen az alapértelmezett</button>{/if}
-          <ConfirmButton small label="Törlés" onconfirm={() => deleteSignature(sig.id)} />
+          <ConfirmButton small label="Törlés" onconfirm={() => remove(sig.id)} />
         </div>
       </div>
     </article>

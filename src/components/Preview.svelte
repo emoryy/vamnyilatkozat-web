@@ -98,6 +98,9 @@
   }
 
   async function download() {
+    // Read afresh: the derived spec keeps the date of the last edit, which is yesterday
+    // after midnight.
+    const spec = currentSpec();
     if (!spec) return;
     downloading = true;
     try {

@@ -196,23 +196,55 @@ function snapshot() {
   return JSON.stringify(app.data);
 }
 
+/** Resolves to whether the current data is stored (false when saving is paused or failed). */
 export function persistNow() {
   clearTimeout(saveTimer);
-  if (!canSave) return Promise.resolve();
+  if (!canSave) return Promise.resolve(false);
   const json = snapshot();
-  if (json === lastSaved) return Promise.resolve();
+  if (json === lastSaved) return Promise.resolve(true);
   lastSaved = json;
   return set(DATA_KEY, JSON.parse(json)).then(
     () => {
       if (app.error.startsWith(SAVE_ERROR)) app.error = '';
+      announceSave();
+      return true;
     },
     (err) => {
       // Forget the failed snapshot so the next change or pagehide tries again.
       if (lastSaved === json) lastSaved = '';
       app.error = `${SAVE_ERROR}: ${err.message || err}`;
+      return false;
     },
   );
 }
+
+// Every save is announced to the app's other open tabs, which reload the stored data,
+// so two tabs don't keep overwriting each other with their own copy.
+const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('vamnyilatkozat-data') : null;
+
+function announceSave() {
+  channel?.postMessage('saved');
+}
+
+async function reloadFromStorage() {
+  if (!canSave || replacing) return;
+  try {
+    const stored = await get(DATA_KEY);
+    const data = stored ? normalizeData(stored) : defaults();
+    const pngs = await getMany(data.signatures.map((sig) => sigKey(sig.id, 'png')));
+    clearTimeout(saveTimer);
+    for (const id of Object.keys(sigUrls)) setSigUrl(id, null);
+    data.signatures.forEach((sig, i) => {
+      if (pngs[i] instanceof Blob) setSigUrl(sig.id, pngs[i]);
+    });
+    lastSaved = JSON.stringify(data);
+    app.data = data;
+  } catch {
+    // Keep showing this tab's copy; its next save stores it as before.
+  }
+}
+
+if (channel) channel.onmessage = () => reloadFromStorage();
 
 function startAutosave() {
   canSave = true;
@@ -310,8 +342,8 @@ export function currentShipment() {
 
 export async function saveSignature(meta, { png, source }) {
   if (!canSave) throw new Error('a tárolt adatok nem töltődtek be, ezért most semmi nem menthető');
-  await set(sigKey(meta.id, 'png'), png);
-  if (source) await set(sigKey(meta.id, 'src'), source);
+  // One transaction, so a failed write cannot leave a new PNG next to an old source.
+  await setMany([[sigKey(meta.id, 'png'), png], ...(source ? [[sigKey(meta.id, 'src'), source]] : [])]);
   setSigUrl(meta.id, png);
   const i = app.data.signatures.findIndex((s) => s.id === meta.id);
   if (i >= 0) app.data.signatures[i] = meta;
@@ -331,10 +363,10 @@ export async function deleteSignature(id) {
   app.data.signatures = app.data.signatures.filter((s) => s.id !== id);
   for (const s of app.data.shipments) if (s.signatureId === id) s.signatureId = '';
   setSigUrl(id, null);
-  // Without saving, the stored data still refers to the images, so they stay.
-  if (!canSave) return;
+  // The images go only once the data without the signature is stored; otherwise the
+  // stored data still refers to them.
+  if (!(await persistNow())) return;
   await delMany([sigKey(id, 'png'), sigKey(id, 'src')]);
-  await persistNow();
 }
 
 // ---- backup
@@ -358,20 +390,21 @@ function dataUrlToBlob(url) {
 }
 
 export async function exportBackup() {
+  // Taken first, so a signature added while the images are read is not exported without its image.
+  const data = JSON.parse(snapshot());
+  const ids = data.signatures.map((s) => s.id);
+  const stored = await getMany(ids.flatMap((id) => [sigKey(id, 'png'), sigKey(id, 'src')]));
+  // A damaged stored value is left out instead of failing the whole export.
+  const toDataUrl = (v) => (v instanceof Blob ? blobToDataUrl(v) : null);
   const images = {};
-  for (const s of app.data.signatures) {
-    const png = await get(sigKey(s.id, 'png'));
-    const src = await get(sigKey(s.id, 'src'));
-    images[s.id] = {
-      png: png ? await blobToDataUrl(png) : null,
-      src: src ? await blobToDataUrl(src) : null,
-    };
+  for (const [i, id] of ids.entries()) {
+    images[id] = { png: await toDataUrl(stored[2 * i]), src: await toDataUrl(stored[2 * i + 1]) };
   }
   const payload = {
     format: 'vamnyilatkozat-backup',
     version: 1,
     exportedAt: new Date().toISOString(),
-    data: JSON.parse(snapshot()),
+    data,
     images,
   };
   return new Blob([JSON.stringify(payload)], { type: 'application/json' });
@@ -439,6 +472,7 @@ export async function importBackup(file) {
     app.error = '';
     lastSaved = json;
     startAutosave();
+    announceSave();
   } finally {
     replacing = false;
   }

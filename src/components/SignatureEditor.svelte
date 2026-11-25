@@ -44,7 +44,14 @@
     };
     (async () => {
       try {
-        const canvas = file ? await loadSourceImage(file) : await blobToCanvas(await signatureSource(existing.id));
+        let canvas;
+        if (file) canvas = await loadSourceImage(file);
+        else {
+          // A backup may carry a signature without its original photo.
+          const stored = await signatureSource(existing.id);
+          if (!(stored instanceof Blob)) throw new Error('Ennek az aláírásnak nincs meg az eredeti képe, ezért nem szerkeszthető. Tölts fel helyette új képet.');
+          canvas = await blobToCanvas(stored);
+        }
         source = canvas;
         const url = URL.createObjectURL(await canvasToBlob(canvas, 'image/jpeg', 0.9));
         if (keepUrl(url)) sourceUrl = url;
@@ -73,24 +80,31 @@
 
   let procTimer;
   let procSeq = 0;
+  // Saving waits for the result of the current settings, so the stored params match the stored image.
+  let pending = $state(false);
   $effect(() => {
     const src = source;
     const params = { crop: crop ? { ...crop } : null, sensitivity, color };
     if (!src || dragging) return;
+    pending = true;
     clearTimeout(procTimer);
     procTimer = setTimeout(async () => {
       const my = ++procSeq;
-      const out = processSignature(src, params);
-      const url = out ? URL.createObjectURL(await canvasToBlob(out)) : '';
-      // A newer run started while this one encoded its PNG: its result wins.
-      if (my !== procSeq) {
-        if (url) URL.revokeObjectURL(url);
-        return;
+      try {
+        const out = processSignature(src, params);
+        const url = out ? URL.createObjectURL(await canvasToBlob(out)) : '';
+        // A newer run started while this one encoded its PNG: its result wins.
+        if (my !== procSeq) {
+          if (url) URL.revokeObjectURL(url);
+          return;
+        }
+        if (processedUrl) URL.revokeObjectURL(processedUrl);
+        processed = out;
+        processedUrl = url;
+        if (out && !placement) placement = defaultPlacement(out.width, out.height);
+      } finally {
+        if (my === procSeq) pending = false;
       }
-      if (processedUrl) URL.revokeObjectURL(processedUrl);
-      processed = out;
-      processedUrl = url;
-      if (out && !placement) placement = defaultPlacement(out.width, out.height);
     }, 120);
     return () => clearTimeout(procTimer);
   });
@@ -191,7 +205,7 @@
   }
 
   async function save() {
-    if (!processed || !placement) return;
+    if (!processed || !placement || pending) return;
     saving = true;
     try {
       const png = await canvasToBlob(processed);
@@ -322,7 +336,7 @@
 
   {#snippet footer()}
     <button type="button" class="btn" onclick={onclose}>Mégse</button>
-    <button type="button" class="btn primary" onclick={save} disabled={!processed || saving}>{saving ? 'Mentés…' : 'Mentés'}</button>
+    <button type="button" class="btn primary" onclick={save} disabled={!processed || pending || saving}>{saving ? 'Mentés…' : 'Mentés'}</button>
   {/snippet}
 </Modal>
 

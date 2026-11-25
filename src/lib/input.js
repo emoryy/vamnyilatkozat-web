@@ -1,4 +1,4 @@
-import { app, findShop, currentShipment, signaturePng } from './store.svelte.js';
+import { app, sigUrls, findShop, currentShipment, signaturePng } from './store.svelte.js';
 
 /** Plain, serialisable description of the current declaration (signature bytes excluded). */
 export function currentSpec() {
@@ -7,7 +7,10 @@ export function currentSpec() {
   if (!s) return null;
   const p = d.profile;
   const parcelSrc = p.parcelDiffers ? p.parcel : p;
-  const sig = d.signatures.find((x) => x.id === s.signatureId) || d.signatures[0] || null;
+  const chosen = d.signatures.find((x) => x.id === s.signatureId) || d.signatures[0] || null;
+  // Only signatures whose stored image loaded have a URL; any other would leave the PDF
+  // unsigned while nothing is reported missing.
+  const sig = chosen && sigUrls[chosen.id] ? chosen : null;
   const shop = findShop(s.shopId);
   return {
     trackingNum: s.trackingNum,
@@ -38,7 +41,10 @@ const pngCache = new Map();
 async function signatureBytes(id, version) {
   const key = `${id}:${version}`;
   if (!pngCache.has(key)) {
-    pngCache.set(key, signaturePng(id).then(async (blob) => (blob ? new Uint8Array(await blob.arrayBuffer()) : null)));
+    const bytes = signaturePng(id).then(async (blob) => (blob instanceof Blob ? new Uint8Array(await blob.arrayBuffer()) : null));
+    // A failed read is retried on the next render instead of failing every later one.
+    bytes.catch(() => pngCache.delete(key));
+    pngCache.set(key, bytes);
   }
   return pngCache.get(key);
 }
