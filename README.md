@@ -24,7 +24,7 @@ npm run build     # dist/
 - `src/lib/signature-image.js`: aláíráskép feldolgozása: papír-háttér becslése (egyenetlen megvilágításhoz is), Otsu-küszöb, apró foltok eltávolítása összefüggő komponensek alapján, levágás a tintára. A fotó 90 fokonként forgatható; ha EXIF-forgatási jelzése van, a szerkesztő egy kattintással vissza tudja állítani a jelzés nélküli állást, mert asztalra lefelé fotózott papírnál ez a jelzés gyakran hibás.
 - `src/lib/store.svelte.js`: állapot és tárolás (IndexedDB, idb-keyval). Minden tárolóművelet (automatikus mentés, aláírás mentése és törlése, import, teljes törlés, újratöltés egy másik lap mentése után) egyetlen sorban, egymás után fut, és a több kulcsot érintő írások egy tranzakcióban mennek. Egyszerre csak egy lap használhatja (Web Locks): egy második lap figyelmeztet, és átveheti az alkalmazást, ekkor az első lap szünetel és nem ment. A tárolt és az importált adatot `normalizeData` mezőnként ellenőrzi.
 - `src/lib/catalog.js`: beépített feladók, megnevezések, dokumentumtípusok.
-- `public/_headers`: Cloudflare Pages fejlécek, szigorú CSP (`connect-src 'self'`), így az oldal külső címre nem küldhet adatot.
+- `public/_headers`: biztonsági fejlécek, köztük szigorú CSP (`connect-src 'self'`), így az oldal külső címre nem küldhet adatot.
 
 ## Beépített feladócímek
 
@@ -32,12 +32,7 @@ A címek a webshopok saját jogi közlemény / cégadat oldaláról származnak 
 
 ## Telepítés
 
-Cloudflare Pages, projekt: `vamnyilatkozat` (https://vamnyilatkozat.pages.dev). A `cf` CLI Pages-re nem tud feltölteni, ezért wranglerrel, a projekthez hozzá nem adva:
-
-```bash
-npm run build
-npx wrangler pages deploy dist --project-name vamnyilatkozat --branch master
-```
+A `npm run build` után a `dist/` mappa tartalma bármilyen statikus tárhelyre kitehető, szerveroldali rész nem kell hozzá. A `public/_headers` a biztonsági fejléceket (szigorú CSP, `Referrer-Policy` stb.) a Cloudflare Pages és a Netlify által értett formátumban adja meg; más tárhelyen ugyanezeket a webszerver beállításában érdemes megadni.
 
 ## Harmadik fél tartalma
 
