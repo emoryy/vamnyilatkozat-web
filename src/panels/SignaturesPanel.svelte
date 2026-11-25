@@ -10,7 +10,8 @@
   let dropping = $state(false);
 
   function openFile(file) {
-    if (!file) return;
+    // A file chooser can return after another tab took the app over; this tab is paused then.
+    if (!file || app.lock !== 'active') return;
     editor = { file, existing: null, defaultName: `Aláírás ${app.data.signatures.length + 1}` };
   }
 

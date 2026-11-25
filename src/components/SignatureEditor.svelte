@@ -38,6 +38,7 @@
   let processedUrl = $state('');
   let bgUrl = $state('');
   let loadError = $state('');
+  let encodeError = $state('');
   let saving = $state(false);
   let showLine = $state(true);
 
@@ -85,6 +86,7 @@
     if (!orig) return undefined;
     const turned = rotateCanvas(orig, deg);
     source = turned;
+    encodeError = '';
     let stale = false;
     canvasToBlob(turned, 'image/jpeg', 0.9)
       .then((blob) => {
@@ -93,8 +95,9 @@
         sourceUrl = URL.createObjectURL(blob);
       })
       .catch((err) => {
-        // Without this the crop area would show "Kép betöltése…" for good.
-        if (!stale && !closed) loadError = err.message || String(err);
+        // Without this the crop area would show "Kép betöltése…" for good. Shown in the crop
+        // area only, so the rotate buttons stay usable for another try.
+        if (!stale && !closed) encodeError = err.message || String(err);
       });
     return () => {
       stale = true;
@@ -164,7 +167,8 @@
   }
 
   function cropDown(e) {
-    if (!source) return;
+    // Without the image the box is a placeholder whose size does not map to the photo.
+    if (!source || !sourceUrl) return;
     e.preventDefault();
     cropBox.setPointerCapture(e.pointerId);
     dragStart = toSourcePx(e);
@@ -299,6 +303,8 @@
                 style:height={pct(crop.h, source.height)}
               ></div>
             {/if}
+          {:else if encodeError}
+            <p class="notice warn pad">A kép nem jeleníthető meg: {encodeError}</p>
           {:else}
             <p class="hint pad">Kép betöltése…</p>
           {/if}

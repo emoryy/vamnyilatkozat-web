@@ -20,7 +20,8 @@
   }
 
   function pick(e) {
-    pendingFile = e.currentTarget.files?.[0] || null;
+    // A file chooser can return after another tab took the app over; this tab is paused then.
+    pendingFile = app.lock === 'active' ? e.currentTarget.files?.[0] || null : null;
     e.currentTarget.value = '';
   }
 

@@ -219,7 +219,7 @@ const isOwnKey = (k) => typeof k === 'string' && (k === DATA_KEY || k.startsWith
 function commit(puts, { del = [], keepOnly = null } = {}) {
   // Every write goes through here, so a tab whose data another tab took over writes
   // nothing, whichever action asks for it.
-  if (app.lock === 'lost') return Promise.reject(new Error('az alkalmazás egy másik lapon fut, ez a lap nem ment'));
+  if (app.lock !== 'active') return Promise.reject(new Error('az alkalmazás egy másik lapon fut, ez a lap nem ment'));
   return db('readwrite', (store) => {
     const tx = store.transaction;
     try {
@@ -285,7 +285,7 @@ function persistNow() {
 
 function startAutosave() {
   // A load, import or reset that finishes after another tab took over must not resume saving.
-  if (app.lock === 'lost') return;
+  if (app.lock !== 'active') return;
   loaded = true;
   app.autosave = true;
   if (autosaving) return;
@@ -337,10 +337,24 @@ function unguarded() {
   load();
 }
 
+let stealing = false;
+
 /** Moves the app to this tab; the tab that had it stops writing. */
 export function takeOver() {
+  // A second click before the first steal is granted would steal from this tab itself,
+  // and the first request's AbortError would then pause the tab that holds the lock.
+  if (stealing) return;
+  stealing = true;
   stopWaiting();
-  navigator.locks.request(LOCK, { steal: true }, () => holdLock()).catch(lockLost);
+  navigator.locks
+    .request(LOCK, { steal: true }, () => {
+      stealing = false;
+      return holdLock();
+    })
+    .catch(() => {
+      stealing = false;
+      lockLost();
+    });
 }
 
 // A tab without the lock waits in line, so it takes over by itself (with the latest
