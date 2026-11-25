@@ -30,6 +30,19 @@ export async function blobToCanvas(blob) {
   return c;
 }
 
+/** Returns the canvas turned clockwise by `deg` (a multiple of 90). */
+export function rotateCanvas(src, deg) {
+  const d = ((deg % 360) + 360) % 360;
+  if (!d) return src;
+  const quarter = d === 90 || d === 270;
+  const out = makeCanvas(quarter ? src.height : src.width, quarter ? src.width : src.height);
+  const ctx = out.getContext('2d');
+  ctx.translate(out.width / 2, out.height / 2);
+  ctx.rotate((d * Math.PI) / 180);
+  ctx.drawImage(src, -src.width / 2, -src.height / 2);
+  return out;
+}
+
 /**
  * Reads an uploaded photo or scan into a canvas on white (transparent areas count as
  * paper), honouring EXIF orientation and capping the longer side.

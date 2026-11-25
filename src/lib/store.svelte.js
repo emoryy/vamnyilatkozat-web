@@ -136,6 +136,7 @@ function normalizeSignatureParams(params) {
     crop,
     sensitivity: finite(src.sensitivity) ? Math.max(0, Math.min(1, src.sensitivity)) : 0.5,
     color: ['auto', 'blue', 'black'].includes(src.color) ? src.color : 'auto',
+    rotation: [0, 90, 180, 270].includes(src.rotation) ? src.rotation : 0,
   };
 }
 

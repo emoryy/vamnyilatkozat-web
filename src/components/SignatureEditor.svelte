@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { saveSignature, signatureSource, uid } from '../lib/store.svelte.js';
   import {
-    loadSourceImage, processSignature, defaultPlacement, canvasToBlob, blobToCanvas,
+    loadSourceImage, processSignature, defaultPlacement, canvasToBlob, blobToCanvas, rotateCanvas,
   } from '../lib/signature-image.js';
   import { renderRegion } from '../lib/pdfjs.js';
   import { templateBytes } from '../lib/declaration.js';
@@ -24,9 +24,15 @@
   let sensitivity = $state(initial.existing?.params?.sensitivity ?? 0.5);
   let color = $state(initial.existing?.params?.color || 'auto');
   let crop = $state(initial.existing?.params?.crop || null);
+  // Clockwise quarter turns of the photo; phones often store a paper shot sideways.
+  let rotation = $state(initial.existing?.params?.rotation || 0);
   let placement = $state(initial.existing?.placement ? { ...initial.existing.placement } : null);
 
+  // The photo as loaded, and `source`, the same turned by `rotation`, which crop and
+  // processing work on.
+  let original = $state.raw(null);
   let source = $state.raw(null);
+  let closed = false;
   let sourceUrl = $state('');
   let processed = $state.raw(null);
   let processedUrl = $state('');
@@ -36,7 +42,6 @@
   let showLine = $state(true);
 
   onMount(() => {
-    let closed = false;
     // A URL created after the editor closed would never be revoked by the cleanup below.
     const keepUrl = (url) => {
       if (closed) URL.revokeObjectURL(url);
@@ -52,9 +57,7 @@
           if (!(stored instanceof Blob)) throw new Error('Ennek az aláírásnak nincs meg az eredeti képe, ezért nem szerkeszthető. Tölts fel helyette új képet.');
           canvas = await blobToCanvas(stored);
         }
-        source = canvas;
-        const url = URL.createObjectURL(await canvasToBlob(canvas, 'image/jpeg', 0.9));
-        if (keepUrl(url)) sourceUrl = url;
+        original = canvas;
       } catch (err) {
         loadError = err.message || String(err);
       }
@@ -75,6 +78,30 @@
       for (const u of [sourceUrl, processedUrl, bgUrl]) if (u) URL.revokeObjectURL(u);
     };
   });
+
+  $effect(() => {
+    const orig = original;
+    const deg = rotation;
+    if (!orig) return undefined;
+    const turned = rotateCanvas(orig, deg);
+    source = turned;
+    let stale = false;
+    canvasToBlob(turned, 'image/jpeg', 0.9).then((blob) => {
+      if (stale || closed) return;
+      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+      sourceUrl = URL.createObjectURL(blob);
+    });
+    return () => {
+      stale = true;
+    };
+  });
+
+  // A crop and a placement made for the old orientation no longer fit.
+  function rotate(quarter) {
+    rotation = (rotation + quarter + 360) % 360;
+    crop = null;
+    placement = null;
+  }
 
   // ---- processing (debounced; large photos take a moment)
 
@@ -213,7 +240,7 @@
     saving = true;
     try {
       const png = await canvasToBlob(processed);
-      const sourceBlob = file ? await canvasToBlob(source, 'image/jpeg', 0.92) : null;
+      const sourceBlob = file ? await canvasToBlob(original, 'image/jpeg', 0.92) : null;
       const now = Date.now();
       const meta = {
         id: existing?.id || uid(),
@@ -221,7 +248,7 @@
         width: processed.width,
         height: processed.height,
         placement: { x: placement.x, y: placement.y, width: placement.width },
-        params: { crop: crop ? { ...crop } : null, sensitivity, color },
+        params: { crop: crop ? { ...crop } : null, sensitivity, color, rotation },
         createdAt: existing?.createdAt || now,
         updatedAt: now,
       };
@@ -243,7 +270,7 @@
     <div class="editor">
       <section class="step">
         <h3><span class="n">1</span> Kivágás</h3>
-        <p class="hint">Húzz egy keretet az aláírás köré, ha a képen más is van (pl. a papír széle, egyéb írás). Keret nélkül az egész kép számít.</p>
+        <p class="hint">Ha a kép el van fordulva, forgasd a helyes állásba. Ha a képen más is van (pl. a papír széle, egyéb írás), húzz egy keretet az aláírás köré; keret nélkül az egész kép számít.</p>
         <div
           class="crop-box"
           bind:this={cropBox}
@@ -269,6 +296,8 @@
           {/if}
         </div>
         <div class="row">
+          <button type="button" class="btn small" onclick={() => rotate(-90)} title="Forgatás balra 90 fokkal" aria-label="Forgatás balra 90 fokkal">↺ 90°</button>
+          <button type="button" class="btn small" onclick={() => rotate(90)} title="Forgatás jobbra 90 fokkal" aria-label="Forgatás jobbra 90 fokkal">↻ 90°</button>
           <button type="button" class="btn small" onclick={() => (crop = null)} disabled={!crop}>Teljes kép</button>
         </div>
 
