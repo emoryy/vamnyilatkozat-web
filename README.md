@@ -24,7 +24,7 @@ npm run build     # dist/
 
 ## Beépített feladócímek
 
-A címek a webshopok saját jogi közlemény / cégadat oldaláról származnak (2026-11-25), a Mandarake boltoké a Mandarake számlákról. Nem szerepel: Hobby Search (az oldal automatikusan nem érhető el, a cím csak cégjegyzékből ismert), Suruga-ya (nem érhető el), Plaza Japan és Goods Republic (nem közölnek címet).
+A címek a webshopok saját jogi közlemény / cégadat oldaláról származnak (2026-11-25), a Mandarake boltoké a Mandarake számlákról és bolti oldalairól, a Hobby Search és a Suruga-ya címe a saját (nemzetközi) oldalukról. Nem szerepel: Plaza Japan és Goods Republic (nem közölnek címet).
 
 ## Telepítés
 

@@ -65,6 +65,27 @@ export const BUILTIN_SHOPS = [
     city: 'Tokyo',
     address: '1-10-15-3F Nihonbashi Horidome, Chuo-ku',
   },
+  // The shop's site (2026-11); an older 2025 invoice still had 4F Sumida Park Place,
+  // 1-1-10 Yokokawa, Sumida-ku, 130-0003 (the company moved in April 2025).
+  {
+    id: 'b:hobbysearch',
+    label: 'Hobby Search',
+    name: 'Hobby Search Co., Ltd.',
+    country: 'Japán',
+    zip: '113-0033',
+    city: 'Tokyo',
+    address: '2F Hongo Fuji Building, 4-9-22 Hongo, Bunkyo-ku',
+  },
+  // From the international site.
+  {
+    id: 'b:surugaya',
+    label: 'Suruga-ya',
+    name: 'SURUGA-YA Inc.',
+    country: 'Japán',
+    zip: '420-0858',
+    city: 'Shizuoka',
+    address: '5-4 Tenmacho, Aoi-ku, Shizuoka Prefecture',
+  },
   // Mandarake ships from the store that holds the item; the store is named on the invoice.
   {
     id: 'b:mandarake-nakano',
@@ -110,6 +131,24 @@ export const BUILTIN_SHOPS = [
     zip: '556-0005',
     city: 'Osaka',
     address: 'Nipponbashi 4-12-6, Naniwa-ku, Osaka',
+  },
+  {
+    id: 'b:mandarake-puck',
+    label: 'Mandarake Puck',
+    name: 'Mandarake Puck',
+    country: 'Japán',
+    zip: '650-0021',
+    city: 'Kobe',
+    address: '2F, Sun Plaza, 1-8-1 Sannomiya-cho, Chuo-ku, Hyogo',
+  },
+  {
+    id: 'b:mandarake-utsunomiya',
+    label: 'Mandarake Utsunomiya',
+    name: 'Mandarake Utsunomiya',
+    country: 'Japán',
+    zip: '320-0803',
+    city: 'Utsunomiya',
+    address: 'Festa 4F, Mageshi-cho 2-8, Tochigi',
   },
 ];
 
