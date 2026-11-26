@@ -57,7 +57,7 @@ async function canvasToBytes(canvas, type, quality) {
 /**
  * Flattens a PDF into page images (no selectable text or vectors) at `dpi`.
  */
-export async function rasterizePdf(bytes, dpi) {
+export async function rasterizePdf(bytes, dpi, title) {
   const src = await openPdf(bytes);
   try {
     const out = await PDFDocument.create();
@@ -74,7 +74,7 @@ export async function rasterizePdf(bytes, dpi) {
       const { width, height } = page.getViewport({ scale: 1 });
       out.addPage([width, height]).drawImage(img, { x: 0, y: 0, width, height });
     }
-    out.setTitle('Nyilatkozat automatikus postai vámkezelésű küldeményhez');
+    out.setTitle(title);
     out.setProducer('Vámnyilatkozat-kitöltő');
     out.setCreator('Vámnyilatkozat-kitöltő');
     return await out.save();

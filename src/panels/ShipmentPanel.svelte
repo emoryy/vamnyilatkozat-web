@@ -1,11 +1,12 @@
 <script>
   import {
-    app, currentShipment, newShipment, emptyItem, allShops, findShop, shopLabel,
-    termOptions, docOptions, remember, uid, blankShop, isBlankShop, removeShop,
+    app, currentShipment, newShipment, emptyItem, allShops, findShop, shopLabel, shopName,
+    termOptions, docOptions, remember, uid, blankShop, isBlankShop, removeShop, emptyPoints,
   } from '../lib/store.svelte.js';
   import { CURRENCIES } from '../lib/catalog.js';
   import { formatMoney, itemRows, isFilledItem } from '../lib/declaration.js';
   import { todayIso } from '../lib/input.js';
+  import { POINTS_DOC, quotedNames } from '../lib/points-statement.js';
   import { MAX_ROWS } from '../lib/field-map.js';
   import Combobox from '../components/Combobox.svelte';
   import ConfirmButton from '../components/ConfirmButton.svelte';
@@ -73,7 +74,7 @@
 
   // Nothing entered yet: an untouched shipment.
   function isUntouched(x) {
-    return !x.trackingNum?.trim() && !x.shopId && !x.docs.length
+    return !x.trackingNum?.trim() && !x.shopId && !x.docs.length && !x.points.enabled
       && (x.shippingCost === '' || x.shippingCost === null) && !x.items.some(isFilledItem);
   }
 
@@ -96,6 +97,9 @@
     copy.trackingNum = '';
     copy.createdAt = Date.now();
     copy.items = copy.items.map((it) => ({ ...it, id: uid() }));
+    // Points redeemed on one parcel are not redeemed again on the next one.
+    const { rate, names, sign, signatureId } = copy.points;
+    copy.points = { ...emptyPoints(), rate, names, sign, signatureId };
     app.data.shipments = [...app.data.shipments, copy];
     app.data.currentShipmentId = copy.id;
   }
@@ -306,9 +310,61 @@
   </section>
 
   <section class="card">
+    <h2 class="section-title">Pontbeváltás, store credit</h2>
+    <label class="check">
+      <input type="checkbox" bind:checked={s.points.enabled} />
+      A rendelésnél a webshopnál gyűjtött pontokat (store creditet) váltottam be
+    </label>
+    {#if s.points.enabled}
+      <div class="grid-2 points">
+        <label class="field">
+          <span>Rendelésazonosító</span>
+          <input class="mono" type="text" bind:value={s.points.orderId} placeholder="a webshop rendelésszáma" autocomplete="off" />
+        </label>
+        <label class="field">
+          <span>Beváltott pontok száma</span>
+          <input type="number" min="0" step="any" inputmode="decimal" bind:value={s.points.used} placeholder="pl. 1200" />
+        </label>
+        <label class="field">
+          <span>1 pont értéke ({s.currency})</span>
+          <input type="number" min="0" step="any" inputmode="decimal" bind:value={s.points.rate} placeholder="pl. 1" />
+        </label>
+        <label class="field">
+          <span>A pontok neve a csatolt dokumentumokban</span>
+          <input type="text" bind:value={s.points.names} placeholder="pl. Store Credit, Points" autocomplete="off" />
+        </label>
+      </div>
+      <div class="points-sign">
+        <label class="check">
+          <input type="checkbox" bind:checked={s.points.sign} />
+          Aláírás is kerüljön a pontnyilatkozatra
+        </label>
+        {#if s.points.sign}
+          {#if !app.data.signatures.length}
+            <button type="button" class="btn small" onclick={() => onnavigate('signature')}>Aláírás feltöltése</button>
+          {:else if app.data.signatures.length > 1}
+            <label class="field">
+              <span>Melyik aláírás</span>
+              <select bind:value={s.points.signatureId}>
+                <option value="">Ugyanaz, mint a vámnyilatkozaton</option>
+                {#each app.data.signatures as sig (sig.id)}<option value={sig.id}>{sig.name}</option>{/each}
+              </select>
+            </label>
+          {/if}
+        {/if}
+      </div>
+      <p class="hint">
+        Erről külön nyilatkozat készül, az előnézetben a vámnyilatkozat alatt látod, és a „Pontnyilatkozat” gombbal töltheted le. A (12) rovatba automatikusan bekerül: „{POINTS_DOC}”.
+        {#if quotedNames(s.points.names)}A nyilatkozatban így szerepel: {quotedNames(s.points.names)}.{:else}Több megnevezést vesszővel válassz el; ha üresen hagyod, ez a mondat kimarad.{/if}
+        A webshop neve a feladó adataiból jön{#if shopName(shop)}: <b>{shopName(shop)}</b>{/if}.
+      </p>
+    {/if}
+  </section>
+
+  <section class="card">
     <h2 class="section-title"><b class="num">(12)</b> Csatolt okmányok, dokumentumok listája</h2>
     <p class="hint docs-hint">Itt csak a nyilatkozathoz csatolt dokumentumok megnevezését adod meg (pl. számla, fizetési igazolás), ezek kerülnek a (12) rovatba. Magukat a fájlokat nem kell ide feltölteni.</p>
-    {#if s.docs.length}
+    {#if s.docs.length || s.points.enabled}
       <ul class="chips">
         {#each s.docs as d, i (d)}
           <li class="chip">
@@ -316,6 +372,9 @@
             <button type="button" aria-label={`${d} eltávolítása`} onclick={() => removeDoc(i)}><Icon name="x" size={14} /></button>
           </li>
         {/each}
+        {#if s.points.enabled && !s.docs.includes(POINTS_DOC)}
+          <li class="chip auto" title="A pontbeváltás blokkból kerül ide; ott kapcsolható ki.">{POINTS_DOC}</li>
+        {/if}
       </ul>
     {/if}
     <div class="doc-add">
@@ -503,6 +562,21 @@
   }
   .chip button:hover {
     background: #c7d3ef;
+  }
+  .chip.auto {
+    padding-right: 11px;
+    background: var(--green-soft);
+    color: var(--green);
+    border-color: #a9d3b6;
+  }
+  .points {
+    margin-top: 12px;
+  }
+  .points-sign {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
   }
   .doc-add {
     display: grid;

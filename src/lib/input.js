@@ -1,4 +1,5 @@
-import { app, sigUrls, findShop, currentShipment, signaturePng } from './store.svelte.js';
+import { app, sigUrls, findShop, shopName, currentShipment, signaturePng } from './store.svelte.js';
+import { POINTS_DOC } from './points-statement.js';
 
 /** Plain, serialisable description of the current declaration (signature bytes excluded). */
 export function currentSpec() {
@@ -10,8 +11,12 @@ export function currentSpec() {
   const chosen = d.signatures.find((x) => x.id === s.signatureId) || d.signatures[0] || null;
   // Only signatures whose stored image loaded have a URL; any other would leave the PDF
   // unsigned while nothing is reported missing.
-  const sig = chosen && sigUrls[chosen.id] ? chosen : null;
+  const usable = (x) => (x && sigUrls[x.id] ? x : null);
+  const sig = usable(chosen);
   const shop = findShop(s.shopId);
+  const pts = s.points;
+  const docs = [...s.docs];
+  if (pts.enabled && !docs.includes(POINTS_DOC)) docs.push(POINTS_DOC);
   return {
     trackingNum: s.trackingNum,
     sender: shop ? { name: shop.name, country: shop.country, zip: shop.zip, city: shop.city, address: shop.address } : null,
@@ -20,10 +25,26 @@ export function currentSpec() {
     currency: s.currency,
     items: s.items.map(({ term, qty, unitPrice, mpid, nspid, spid }) => ({ term, qty, unitPrice, mpid, nspid, spid })),
     shippingCost: s.shippingCost,
-    docs: [...s.docs],
+    docs,
     date: s.date || todayIso(),
-    signature: sig ? { id: sig.id, version: sig.updatedAt, width: sig.width, height: sig.height, placement: { ...sig.placement } } : null,
+    points: pts.enabled
+      ? {
+          shopName: shopName(shop),
+          orderId: pts.orderId.trim(),
+          used: pts.used === null ? '' : pts.used,
+          rate: Number(pts.rate) > 0 ? Number(pts.rate) : '',
+          names: pts.names,
+          sign: pts.sign,
+          // Without a choice of its own it is signed like the declaration.
+          signature: pts.sign ? sigSpec(usable(d.signatures.find((x) => x.id === pts.signatureId) || chosen)) : null,
+        }
+      : null,
+    signature: sigSpec(sig),
   };
+}
+
+function sigSpec(sig) {
+  return sig ? { id: sig.id, version: sig.updatedAt, width: sig.width, height: sig.height, placement: { ...sig.placement } } : null;
 }
 
 export function todayIso() {
@@ -71,12 +92,39 @@ export function missingParts(spec) {
   if (!spec.declarant.address?.trim() || !spec.declarant.city?.trim()) out.push({ label: 'Saját cím', tab: 'profile' });
   if (!spec.items.some((i) => i.term?.trim())) out.push({ label: 'Tétel megnevezése', tab: 'shipment' });
   if (!spec.signature) out.push({ label: 'Aláírás', tab: 'signature' });
+  if (spec.points?.used === '') out.push({ label: 'Beváltott pontok', tab: 'shipment' });
+  if (spec.points?.rate === '') out.push({ label: 'Pont értéke', tab: 'shipment' });
+  if (spec.points?.sign && !spec.points.signature && spec.signature) out.push({ label: 'Aláírás a pontnyilatkozatra', tab: 'shipment' });
   return out;
 }
 
+function trackingPart(spec) {
+  return (spec.trackingNum || '').trim().replace(/[^\p{L}\p{N}._-]+/gu, '_');
+}
+
 export function fileNameFor(spec) {
-  const base = (spec.trackingNum || '').trim().replace(/[^\p{L}\p{N}._-]+/gu, '_');
+  const base = trackingPart(spec);
   // The official form's own file name, followed by the tracking number.
   const form = 'Nyilatkozat_automatikus_postai_vamkezelesu_kuldemenyhez_WEB';
   return base ? `${form}_${base}.pdf` : `${form}.pdf`;
+}
+
+export function pointsFileNameFor(spec) {
+  const base = trackingPart(spec);
+  return base ? `Nyilatkozat_pontbevaltasrol_${base}.pdf` : 'Nyilatkozat_pontbevaltasrol.pdf';
+}
+
+/** The points statement generator's input for a spec (signature loaded), or null when none is needed. */
+export async function pointsInput(spec) {
+  if (!spec.points) return null;
+  const s = spec.points.signature;
+  const png = s ? await signatureBytes(s.id, s.version) : null;
+  return {
+    ...spec.points,
+    signature: png ? { ...s, png } : null,
+    trackingNum: spec.trackingNum.trim(),
+    currency: spec.currency,
+    date: spec.date,
+    name: spec.declarant.name.trim(),
+  };
 }

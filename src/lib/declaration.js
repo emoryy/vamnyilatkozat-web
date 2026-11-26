@@ -6,12 +6,14 @@ import { SINGLE, ROWS, MAX_ROWS, PAGE } from './field-map.js';
 const TEMPLATE_URL = '/assets/nyilatkozat-2026-10.pdf';
 const FONT_URL = '/assets/LiberationSerif-Regular.ttf';
 
-const MONTHS_HU = [
+export const MONTHS_HU = [
   'január', 'február', 'március', 'április', 'május', 'június',
   'július', 'augusztus', 'szeptember', 'október', 'november', 'december',
 ];
 
 const NONE = 'nincs';
+
+export const DECLARATION_TITLE = 'Nyilatkozat automatikus postai vámkezelésű küldeményhez';
 
 // Rows that fit on one continuation page between its header (y 738) and a 30 pt bottom margin.
 const CONTINUATION_ROWS = 40;
@@ -41,6 +43,10 @@ export function templateBytes() {
   return loadAssets().then(([template]) => template);
 }
 
+export function fontBytes() {
+  return loadAssets().then(([, font]) => font);
+}
+
 export function formatMoney(value, currency) {
   const n = Number(value) || 0;
   const str = n
@@ -58,7 +64,7 @@ function fittedSize(font, text, maxWidth, base, min = 5.5) {
 }
 
 /** Splits text into lines no wider than maxWidth: at spaces, and inside a word too long for a line. */
-function wrapLines(font, str, size, maxWidth) {
+export function wrapLines(font, str, size, maxWidth) {
   const lines = [];
   let line = '';
   for (const word of str.split(/\s+/).filter(Boolean)) {
@@ -313,7 +319,7 @@ export async function buildDeclaration(input) {
     // The fields are empty; the drawn content does not depend on the AcroForm.
   }
 
-  doc.setTitle('Nyilatkozat automatikus postai vámkezelésű küldeményhez');
+  doc.setTitle(DECLARATION_TITLE);
   doc.setProducer('Vámnyilatkozat-kitöltő');
   doc.setCreator('Vámnyilatkozat-kitöltő');
 

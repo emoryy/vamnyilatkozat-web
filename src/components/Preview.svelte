@@ -1,7 +1,8 @@
 <script>
   import { app } from '../lib/store.svelte.js';
-  import { currentSpec, resolveInput, missingParts, fileNameFor } from '../lib/input.js';
-  import { buildDeclaration } from '../lib/declaration.js';
+  import { currentSpec, resolveInput, missingParts, fileNameFor, pointsFileNameFor, pointsInput } from '../lib/input.js';
+  import { buildDeclaration, DECLARATION_TITLE } from '../lib/declaration.js';
+  import { buildPointsStatement, POINTS_DOC } from '../lib/points-statement.js';
   import { openPdf, renderPage, rasterizePdf } from '../lib/pdfjs.js';
   import { toast } from '../lib/toast.svelte.js';
   import { downloadBlob } from '../lib/download.js';
@@ -17,8 +18,11 @@
   let scroller;
   let busy = $state(false);
   let downloading = $state(false);
+  let downloadingPoints = $state(false);
   let error = $state('');
   let pageCount = $state(0);
+  let extraCount = $state(0);
+  let pointsError = $state('');
   let width = $state(0);
   let height = $state(0);
   let fit = $state(readFit());
@@ -67,38 +71,78 @@
     return () => ro.disconnect();
   });
 
+  async function renderPdf(bytes, cssWidth) {
+    const doc = await openPdf(bytes);
+    try {
+      const canvases = [];
+      for (let i = 1; i <= doc.numPages; i++) {
+        const page = await doc.getPage(i);
+        const base = page.getViewport({ scale: 1 });
+        const scale = (cssWidth / base.width) * (window.devicePixelRatio || 1);
+        const canvas = await renderPage(page, scale);
+        canvas.style.width = `${cssWidth}px`;
+        canvas.className = 'sheet';
+        canvases.push(canvas);
+      }
+      return canvases;
+    } finally {
+      doc.destroy();
+    }
+  }
+
   async function render(s, w) {
     const my = ++seq;
     busy = true;
     try {
-      const { bytes } = await buildDeclaration(await resolveInput(s));
+      const cssWidth = Math.min(w - 48, 980);
+      const declaration = resolveInput(s)
+        .then(buildDeclaration)
+        .then(({ bytes }) => (my === seq ? renderPdf(bytes, cssWidth) : []));
+      // The statement is a separate document: its failure must not hide the declaration.
+      const statement = s.points
+        ? pointsInput(s)
+            .then(buildPointsStatement)
+            .then(({ bytes }) => (my === seq ? renderPdf(bytes, cssWidth) : []))
+            .then((pages) => ({ pages, err: '' }), (err) => ({ pages: [], err: err.message || String(err) }))
+        : Promise.resolve({ pages: [], err: '' });
+      const [nodes, { pages: extra, err: extraErr }] = await Promise.all([declaration, statement]);
       if (my !== seq) return;
-      const doc = await openPdf(bytes);
-      try {
-        const cssWidth = Math.min(w - 48, 980);
-        const canvases = [];
-        for (let i = 1; i <= doc.numPages; i++) {
-          const page = await doc.getPage(i);
-          const base = page.getViewport({ scale: 1 });
-          const scale = (cssWidth / base.width) * (window.devicePixelRatio || 1);
-          const canvas = await renderPage(page, scale);
-          canvas.style.width = `${cssWidth}px`;
-          canvas.className = 'sheet';
-          canvases.push(canvas);
-        }
-        if (my !== seq) return;
-        // Swap only when every page is ready, so the preview never blanks out.
-        pagesEl.replaceChildren(...canvases);
-        pageCount = canvases.length;
-        error = '';
-      } finally {
-        doc.destroy();
+      const count = nodes.length;
+      if (extra.length) {
+        const caption = document.createElement('p');
+        caption.className = 'doc-caption';
+        caption.textContent = `Külön dokumentum: ${POINTS_DOC}`;
+        caption.style.width = `${cssWidth}px`;
+        nodes.push(caption, ...extra);
       }
+      // Swap only when every page is ready, so the preview never blanks out.
+      pagesEl.replaceChildren(...nodes);
+      pageCount = count;
+      extraCount = extra.length;
+      pointsError = extraErr;
+      error = '';
     } catch (err) {
-      if (my === seq) error = err.message || String(err);
+      if (my === seq) {
+        error = err.message || String(err);
+        pointsError = '';
+      }
     } finally {
       if (my === seq) busy = false;
     }
+  }
+
+  // Stay at the signature's own resolution so it is not upscaled, but never so low that a
+  // small signature scan blurs the printed text of the whole page.
+  function rasterDpi(signatureDpi) {
+    return Math.max(MIN_RASTER_DPI, Math.min(RASTER_DPI, signatureDpi || RASTER_DPI));
+  }
+
+  /** build() returns { bytes, signatureDpi }; the result is flattened when that is set. */
+  async function downloadPdf(build, fileName, title) {
+    const { bytes, signatureDpi } = await build();
+    const out = app.data.settings.rasterize ? await rasterizePdf(bytes, rasterDpi(signatureDpi), title) : bytes;
+    downloadBlob(new Blob([out], { type: 'application/pdf' }), fileName);
+    toast(`Letöltve: ${fileName}`);
   }
 
   async function download() {
@@ -108,21 +152,24 @@
     if (!spec) return;
     downloading = true;
     try {
-      const { bytes, signatureDpi } = await buildDeclaration(await resolveInput(spec));
-      let out = bytes;
-      if (app.data.settings.rasterize) {
-        // Stay at the signature's own resolution so it is not upscaled, but never so low
-        // that a small signature scan blurs the printed text of the whole form.
-        const dpi = Math.max(MIN_RASTER_DPI, Math.min(RASTER_DPI, signatureDpi || RASTER_DPI));
-        out = await rasterizePdf(bytes, dpi);
-      }
-      const fileName = fileNameFor(spec);
-      downloadBlob(new Blob([out], { type: 'application/pdf' }), fileName);
-      toast(`Letöltve: ${fileName}`);
+      await downloadPdf(async () => buildDeclaration(await resolveInput(spec)), fileNameFor(spec), DECLARATION_TITLE);
     } catch (err) {
       toast(`A PDF nem készült el: ${err.message || err}`, 'error', 6000);
     } finally {
       downloading = false;
+    }
+  }
+
+  async function downloadPoints() {
+    const spec = currentSpec();
+    if (!spec?.points) return;
+    downloadingPoints = true;
+    try {
+      await downloadPdf(async () => buildPointsStatement(await pointsInput(spec)), pointsFileNameFor(spec), POINTS_DOC);
+    } catch (err) {
+      toast(`A PDF nem készült el: ${err.message || err}`, 'error', 6000);
+    } finally {
+      downloadingPoints = false;
     }
   }
 </script>
@@ -138,7 +185,7 @@
     {#if busy}
       <span class="pill working">frissül…</span>
     {:else if pageCount}
-      <span class="pill">{pageCount} oldal</span>
+      <span class="pill">{extraCount ? `${pageCount} oldal + ${extraCount} külön` : `${pageCount} oldal`}</span>
     {/if}
   </div>
   <div class="actions">
@@ -154,6 +201,12 @@
       <Icon name="download" />
       {downloading ? 'Készül…' : 'PDF letöltése'}
     </button>
+    {#if spec?.points}
+      <button type="button" class="btn post" onclick={downloadPoints} disabled={downloadingPoints} title={POINTS_DOC}>
+        <Icon name="download" />
+        {downloadingPoints ? 'Készül…' : 'Pontnyilatkozat'}
+      </button>
+    {/if}
   </div>
 </div>
 
@@ -169,6 +222,9 @@
 {/if}
 {#if error}
   <p class="missing err">Hiba az előnézetben: {error}</p>
+{/if}
+{#if pointsError && spec?.points}
+  <p class="missing err">A pontnyilatkozat nem készült el: {pointsError}</p>
 {/if}
 
 <div class="scroller" bind:this={scroller}>
@@ -321,6 +377,13 @@
   }
   .pages.dim {
     opacity: 0.85;
+  }
+  .pages :global(.doc-caption) {
+    margin: 10px 0 -8px;
+    color: var(--desk-ink);
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: 15px;
   }
   .pages :global(.sheet) {
     display: block;

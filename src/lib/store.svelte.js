@@ -17,6 +17,10 @@ export function emptyItem() {
   return { id: uid(), term: '', qty: 1, unitPrice: '', mpid: '', nspid: '', spid: '' };
 }
 
+export function emptyPoints() {
+  return { enabled: false, orderId: '', used: '', rate: 1, names: '', sign: false, signatureId: '' };
+}
+
 export function newShipment(prev) {
   return {
     id: uid(),
@@ -27,6 +31,7 @@ export function newShipment(prev) {
     shippingCost: '',
     items: [emptyItem()],
     docs: [],
+    points: emptyPoints(),
     signatureId: prev?.signatureId || '',
     createdAt: Date.now(),
   };
@@ -97,8 +102,23 @@ function normalizeShipment(sh) {
     shippingCost: amount(sh.shippingCost),
     items: items.length ? items : [emptyItem()],
     docs: strings(sh.docs),
+    points: normalizePoints(sh.points),
     signatureId: text(sh.signatureId),
     createdAt: finite(sh.createdAt) ? sh.createdAt : Date.now(),
+  };
+}
+
+function normalizePoints(p) {
+  const src = isObject(p) ? p : {};
+  return {
+    enabled: src.enabled === true,
+    orderId: text(src.orderId),
+    used: amount(src.used),
+    // A cleared rate stays cleared (and reported missing); only data without one gets 1.
+    rate: amount(src.rate, src.rate === undefined ? 1 : ''),
+    names: text(src.names),
+    sign: src.sign === true,
+    signatureId: text(src.signatureId),
   };
 }
 
@@ -164,7 +184,10 @@ function normalizeData(stored) {
   };
   // A shipment pointing at a dropped signature would silently be signed with the first one.
   const sigIds = new Set(data.signatures.map((sig) => sig.id));
-  for (const sh of data.shipments) if (!sigIds.has(sh.signatureId)) sh.signatureId = '';
+  for (const sh of data.shipments) {
+    if (!sigIds.has(sh.signatureId)) sh.signatureId = '';
+    if (!sigIds.has(sh.points.signatureId)) sh.points.signatureId = '';
+  }
   if (!data.shipments.length) data.shipments = base.shipments;
   if (!data.shipments.some((sh) => sh.id === data.currentShipmentId)) {
     data.currentShipmentId = data.shipments[0].id;
@@ -452,8 +475,13 @@ export function findShop(id) {
   return app.data.shops.find((s) => s.id === id) || BUILTIN_SHOPS.find((s) => s.id === id) || null;
 }
 
+/** The shop's own name for text: its label, else its legal name; '' when it has neither. */
+export function shopName(shop) {
+  return shop ? (shop.label || shop.name).trim() : '';
+}
+
 export function shopLabel(shop) {
-  return shop ? shop.label || shop.name || 'Névtelen feladó' : '';
+  return shop ? shopName(shop) || 'Névtelen feladó' : '';
 }
 
 export function termOptions() {
@@ -529,8 +557,10 @@ export function deleteSignature(id) {
   return enqueue(async () => {
     const before = app.data.signatures;
     const users = app.data.shipments.filter((s) => s.signatureId === id);
+    const pointsUsers = app.data.shipments.filter((s) => s.points.signatureId === id);
     app.data.signatures = before.filter((s) => s.id !== id);
     for (const s of users) s.signatureId = '';
+    for (const s of pointsUsers) s.points.signatureId = '';
     if (loaded) {
       const json = snapshot();
       try {
@@ -540,6 +570,7 @@ export function deleteSignature(id) {
         app.data.signatures = before;
         // A shipment switched to another signature meanwhile keeps that choice.
         for (const s of users) if (!s.signatureId) s.signatureId = id;
+        for (const s of pointsUsers) if (!s.points.signatureId) s.points.signatureId = id;
         throw err;
       }
       markSaved(json);
@@ -627,7 +658,10 @@ export async function importBackup(file) {
   // A signature without its image would look selectable but leave the PDF unsigned.
   const withPng = new Set(images.filter((i) => i.png).map((i) => i.id));
   data.signatures = data.signatures.filter((s) => withPng.has(s.id));
-  for (const sh of data.shipments) if (sh.signatureId && !withPng.has(sh.signatureId)) sh.signatureId = '';
+  for (const sh of data.shipments) {
+    if (sh.signatureId && !withPng.has(sh.signatureId)) sh.signatureId = '';
+    if (sh.points.signatureId && !withPng.has(sh.points.signatureId)) sh.points.signatureId = '';
+  }
   const json = JSON.stringify(data);
   const puts = [];
   for (const { id, png, src } of images) {
